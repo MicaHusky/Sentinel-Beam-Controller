@@ -10,11 +10,20 @@
 // Bump this alongside CHANGELOG.md whenever a build is worth calling a
 // version - printed over Serial at boot so a flashed board always tells you
 // exactly what firmware it's running.
-constexpr const char* FIRMWARE_VERSION = "1.2.0";
+constexpr const char* FIRMWARE_VERSION = "1.3.0";
 
 // ---------- Trigger ----------
 constexpr uint8_t  PIN_TRIGGER          = 4;   // INPUT_PULLUP, switch pulls to GND
 constexpr uint16_t TRIGGER_DEBOUNCE_MS  = 20;
+
+// ---------- Mode button ----------
+// Second momentary button, wired exactly like the trigger (INPUT_PULLUP,
+// switch shorts the pin to GND, so LOW = pressed). Each debounced press
+// advances the LED mode one step and wraps around: Normal -> Rainbow -> ...
+// -> Normal. GPIO1 is clear of the strapping pins (0/3/45/46), USB D-/D+
+// (19/20), and the OPI PSRAM range.
+constexpr uint8_t  PIN_MODE_BUTTON         = 1;
+constexpr uint16_t MODE_BUTTON_DEBOUNCE_MS = 20;
 
 // ---------- microSD (boot-time only, then fully shut down) ----------
 constexpr uint8_t  PIN_SD_CS   = 10;

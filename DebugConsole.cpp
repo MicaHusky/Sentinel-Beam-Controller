@@ -1,9 +1,10 @@
 #include "DebugConsole.h"
 
-void DebugConsole::begin(LEDManager* led, AudioManager* audio, SettingsController* settings) {
+void DebugConsole::begin(LEDManager* led, AudioManager* audio, SettingsController* settings, ModeManager* mode) {
     _led = led;
     _audio = audio;
     _settings = settings;
+    _mode = mode;
     _lineBuffer = "";
     Serial.println("[Debug] Serial console ready - type 'help' for commands.");
 }
@@ -78,7 +79,7 @@ void DebugConsole::printHelp() {
     Serial.println(F("[Debug]   idleMinBrightness=15      idle breathe low point, 0-100 (%)"));
     Serial.println(F("[Debug]   idleMaxBrightness=50      idle breathe high point, 0-100 (%)"));
     Serial.println(F("[Debug]   audioGain=0.15            playback gain, 0.0-2.0"));
-    Serial.println(F("[Debug]   ledMode=rainbow|normal    override all LED states with a rainbow chase, or return to normal"));
+    Serial.println(F("[Debug]   ledMode=rainbow|normal    set the LED mode (same cycle as the GPIO1 mode button)"));
     Serial.println(F("[Debug]   rainbowSpeed=40           chase speed, wheel positions/sec (higher = faster)"));
     Serial.println(F("[Debug]"));
     Serial.println(F("[Debug] Example: idleColor=33B5E5"));
@@ -97,7 +98,7 @@ void DebugConsole::printHelp() {
         Serial.printf("[Debug]   idleMinBrightness=%.0f  idleMaxBrightness=%.0f\n",
                       _led->getIdleMinBrightness() * 100.0f, _led->getIdleMaxBrightness() * 100.0f);
         Serial.printf("[Debug]   ledMode=%s  rainbowSpeed=%.1f\n",
-                      _led->isRainbowMode() ? "rainbow" : "normal", _led->getRainbowSpeed());
+                      _mode ? modeName(_mode->mode()) : "?", _led->getRainbowSpeed());
     }
     if (_audio) {
         Serial.printf("[Debug]   audioGain=%.2f\n", _audio->getGain());

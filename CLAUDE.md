@@ -83,6 +83,15 @@ frequently didn't work as given.
   `setup()` now so the bar is live for the rest of boot. The boot visuals are
   boot-time-only `Config.h` constants with no console setter, on purpose (the
   console isn't up yet and there's no persistence).
+- **The GPIO1 mode button cycles LED modes** (`Normal` -> `Rainbow` -> ...,
+  wrapping). `ModeManager` owns the button and is the *single source of truth*
+  for the current mode - the debug console's `ledMode=` command routes through
+  it too, so the two can't disagree. `ModeManager` follows the
+  independent-manager rule (it never calls `LEDManager`); the main loop polls
+  `mode()` and calls `applyMode()` in `SentinelBeam.ino` to act on a change.
+  Adding a mode = a value in `LEDMode`, a `modeName()` case, an `applyMode()`
+  case. The button debounce is a deliberate copy of `TriggerManager`'s rather
+  than a shared helper, to keep the hardware-validated trigger path untouched.
 - A WiFi captive-portal control page was built, then explicitly removed
   (reverted to WiFi-less) because there was no persistence layer for its
   changes yet. `SettingsController` was kept because the Serial console

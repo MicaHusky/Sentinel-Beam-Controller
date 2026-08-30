@@ -43,6 +43,7 @@ No re-download, no re-extract - Arduino IDE just reads whatever's on disk.
 | Function | Pin(s) |
 |---|---|
 | Trigger | GPIO4 (INPUT_PULLUP) |
+| Mode button | GPIO1 (INPUT_PULLUP) |
 | microSD (boot-time only) | CS 10, SCK 5, MISO 6, MOSI 7 |
 | I2S DAC (PCM5102A) | DOUT 11, BCLK 12, LRCK 13 |
 | Stepper (TMC2209) | STEP 15, DIR 16, EN 17 (active LOW) |
@@ -80,6 +81,19 @@ starts), **red twice** = a required subsystem failed and the firmware is
 staying inert - the bars freeze where they stalled, so the unfilled ring shows
 you which subsystem to look at. (A yellow-twice "degraded mode" code is
 reserved for later.)
+
+## Modes
+
+A second momentary button on **GPIO1** (wired just like the trigger) cycles the
+LED mode on each press, wrapping around:
+
+1. **Normal** - the usual idle / firing / cooldown behavior
+2. **Rainbow** - a full-strip rainbow chase over the barrel and vents; the
+   trigger, motor, audio, and fog all keep working underneath it
+
+More modes will be added to the same cycle later. The debug console's
+`ledMode=normal|rainbow` command selects the same modes and stays in sync with
+the button.
 
 ## Debug console
 

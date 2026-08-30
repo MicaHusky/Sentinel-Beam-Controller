@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include "LEDManager.h"
 #include "AudioManager.h"
+#include "ModeManager.h"
 
 // =============================================================================
 // SettingsController
@@ -22,7 +23,7 @@ struct SettingResult {
 
 class SettingsController {
 public:
-    void begin(LEDManager* led, AudioManager* audio);
+    void begin(LEDManager* led, AudioManager* audio, ModeManager* mode);
     SettingResult apply(const String& key, const String& value);
 
 private:
@@ -30,4 +31,5 @@ private:
 
     LEDManager*   _led   = nullptr;
     AudioManager* _audio = nullptr;
+    ModeManager*  _mode  = nullptr;
 };

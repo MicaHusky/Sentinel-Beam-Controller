@@ -20,6 +20,7 @@
 
 #include "Config.h"
 #include "TriggerManager.h"
+#include "ModeManager.h"
 #include "MotorManager.h"
 #include "AudioManager.h"
 #include "LEDManager.h"
@@ -40,6 +41,7 @@ static_assert(LED_NUM_SETS == 5,
               "boot progress bar assumes exactly 5 barrel rings");
 
 TriggerManager triggerManager;
+ModeManager    modeManager;
 MotorManager   motorManager;
 AudioManager   audioManager;
 LEDManager     ledManager;
@@ -50,6 +52,23 @@ DebugConsole   debugConsole;
 SystemState currentState = STATE_INIT;
 bool systemReady = false;
 bool motorInitOk = false; // latched from motorManager.begin(); gates boot ring 0's SD-mount step
+LEDMode appliedMode = MODE_NORMAL; // last mode actually pushed to the subsystems
+
+// Translate the current mode into subsystem calls. The single place modes are
+// acted on - add new modes here (and in LEDMode / modeName() in ModeManager.h).
+// Managers still never call each other; this runs from the main loop.
+void applyMode(LEDMode m) {
+    switch (m) {
+        case MODE_RAINBOW:
+            ledManager.setRainbowMode(true);
+            break;
+        case MODE_NORMAL:
+        default:
+            ledManager.setRainbowMode(false);
+            break;
+    }
+    Serial.printf("[System] LED mode applied: %s\n", modeName(m));
+}
 
 // AudioManager's boot-load progress -> barrel boot progress bar.
 //   phase 0     = SD card mounted            -> ring 0's final (5th) step
@@ -76,7 +95,8 @@ void setup() {
     ledManager.setBootRingProgress(0, 1.0f / 5.0f); // ring 0 step 1: LED subsystem up
 
     triggerManager.begin();
-    ledManager.setBootRingProgress(0, 2.0f / 5.0f); // step 2: trigger
+    modeManager.begin(); // second button (GPIO1) - part of the same input bring-up step
+    ledManager.setBootRingProgress(0, 2.0f / 5.0f); // step 2: trigger + mode button
 
     fogManager.begin();
     ledManager.setBootRingProgress(0, 3.0f / 5.0f); // step 3: fog
@@ -90,8 +110,8 @@ void setup() {
 
     // The debug console must come up even on a failed boot - loop() keeps
     // pumping debugConsole.update() so a dead board can still be inspected.
-    settingsController.begin(&ledManager, &audioManager);
-    debugConsole.begin(&ledManager, &audioManager, &settingsController);
+    settingsController.begin(&ledManager, &audioManager, &modeManager);
+    debugConsole.begin(&ledManager, &audioManager, &settingsController, &modeManager);
 
     if (motorInitOk && audioOk) {
         ledManager.setBootRingProgress(4, 1.0f); // ring 4: settings + console up (headroom for future subsystems)
@@ -113,6 +133,7 @@ void setup() {
 }
 
 void updateTrigger() { triggerManager.update(); }
+void updateMode()    { modeManager.update(); }
 void updateAudio()   { audioManager.update(); }
 void updateMotor()   {
     // FastAccelStepper runs its ramps and auto-enable/disable in the
@@ -132,6 +153,13 @@ void loop() {
     }
 
     updateTrigger();
+
+    updateMode();
+    if (modeManager.mode() != appliedMode) {
+        appliedMode = modeManager.mode();
+        applyMode(appliedMode); // button press or `ledMode=` both land here
+    }
+
     updateAudio();
     updateMotor();
     updateLEDs();

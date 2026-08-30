@@ -1,8 +1,9 @@
 #include "SettingsController.h"
 
-void SettingsController::begin(LEDManager* led, AudioManager* audio) {
+void SettingsController::begin(LEDManager* led, AudioManager* audio, ModeManager* mode) {
     _led = led;
     _audio = audio;
+    _mode = mode;
 }
 
 bool SettingsController::parseHexColor(const String& hex, uint8_t& r, uint8_t& g, uint8_t& b) {
@@ -156,11 +157,14 @@ SettingResult SettingsController::apply(const String& keyIn, const String& value
         return {true, "Audio gain has been changed to " + String(gain, 2)};
 
     } else if (key.equalsIgnoreCase("ledMode")) {
+        // Routed through ModeManager (the single source of truth), so this and
+        // the physical GPIO1 mode button stay in agreement. The main loop
+        // applies the change to the LEDs on its next pass.
         if (value.equalsIgnoreCase("rainbow")) {
-            if (_led) _led->setRainbowMode(true);
+            if (_mode) _mode->setMode(MODE_RAINBOW);
             return {true, "LED mode has been changed to rainbow"};
         } else if (value.equalsIgnoreCase("normal")) {
-            if (_led) _led->setRainbowMode(false);
+            if (_mode) _mode->setMode(MODE_NORMAL);
             return {true, "LED mode has been changed to normal"};
         }
         return {false, "ERROR: ledMode expects 'normal' or 'rainbow'."};

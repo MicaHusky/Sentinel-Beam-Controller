@@ -3,7 +3,32 @@
 ## [Unreleased]
 Nothing yet.
 
-## [1.2.0] - current
+## [1.3.0] - current
+A second momentary button cycles the LED mode.
+
+### Added
+- **Mode button on GPIO1.** Wired exactly like the trigger (INPUT_PULLUP,
+  switch to GND, 20 ms debounce). Each press advances the LED mode one step and
+  wraps around: `Normal` -> `Rainbow` -> `Normal` -> ...  New alt-modes slot
+  into the same cycle later.
+- **`ModeManager`** - owns the GPIO1 button and the current mode, and is the
+  single source of truth for it. The debounce mirrors `TriggerManager`'s.
+  Consistent with the independent-manager pattern: it never calls other
+  managers; the main loop reads `mode()` each pass and, on a change, calls
+  `applyMode()` to translate it into subsystem calls (today just
+  `ledManager.setRainbowMode()`).
+- Adding a future mode is three edits: a value in `LEDMode`, a case in
+  `modeName()`, and a case in `applyMode()`.
+
+### Changed
+- The debug console's `ledMode=normal|rainbow` command now routes through
+  `ModeManager` instead of poking `LEDManager` directly, so the console and the
+  physical button can never disagree about the current mode. The `help`
+  listing's "current values" line reports `ModeManager`'s mode.
+- `SettingsController::begin()` and `DebugConsole::begin()` each take an extra
+  `ModeManager*`.
+
+## [1.2.0]
 Boot sequence is now shown on the barrel: the five rings of 17 LEDs each act as
 an independent loading bar for one boot phase.
 
