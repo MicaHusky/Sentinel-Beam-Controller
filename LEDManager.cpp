@@ -2,7 +2,7 @@
 #include "Config.h"
 
 LEDManager::LEDManager()
-    : _strip(LED_TOTAL_COUNT, PIN_LED_DATA, NEO_GRB + NEO_KHZ800),
+    : _strip(LED_COUNT, PIN_LED_DATA, NEO_GRB + NEO_KHZ800),
       _ventLeft(VENT_LED_COUNT, PIN_VENT_LEFT, NEO_GRB + NEO_KHZ800),
       _ventRight(VENT_LED_COUNT, PIN_VENT_RIGHT, NEO_GRB + NEO_KHZ800),
       _idleR(LED_COLOR_IDLE_DEFAULT_R), _idleG(LED_COLOR_IDLE_DEFAULT_G), _idleB(LED_COLOR_IDLE_DEFAULT_B),
@@ -20,7 +20,7 @@ LEDManager::LEDManager()
 
 void LEDManager::begin() {
     _strip.begin();
-    _strip.clear(); // LEDs beyond LED_ACTIVE_COUNT are never touched again - they stay off
+    _strip.clear();
     _strip.show();
 
     _ventLeft.begin();
@@ -38,8 +38,8 @@ void LEDManager::begin() {
     _state = LEDState::IDLE;
     _stateStartMs = millis();
 
-    Serial.printf("[LEDManager] initialized: %u sets of %u LEDs (%u active of %u total) + 2 vent strips of %u\n",
-                  LED_NUM_SETS, LED_SET_SIZE, LED_ACTIVE_COUNT, LED_TOTAL_COUNT, VENT_LED_COUNT);
+    Serial.printf("[LEDManager] initialized: %u rings of %u LEDs (%u total) + 2 vent strips of %u\n",
+                  LED_NUM_SETS, LED_SET_SIZE, LED_COUNT, VENT_LED_COUNT);
 }
 
 void LEDManager::notifyFireStart() {
@@ -124,7 +124,7 @@ void LEDManager::bootFlash(BootResult result) {
                                      (uint8_t)(b * LED_BOOT_BRIGHTNESS));
 
     for (uint8_t f = 0; f < count; f++) {
-        for (uint16_t i = 0; i < LED_ACTIVE_COUNT; i++) _strip.setPixelColor(i, on);
+        for (uint16_t i = 0; i < LED_COUNT; i++) _strip.setPixelColor(i, on);
         _strip.show();
         delay(LED_BOOT_FLASH_ON_MS);
         _strip.clear();
@@ -381,8 +381,8 @@ void LEDManager::renderRainbow() {
     unsigned long elapsed = millis() - _rainbowStartMs;
     float baseWheelPos = fmodf(((float)elapsed / 1000.0f) * _rainbowSpeed, 256.0f);
 
-    for (uint16_t i = 0; i < LED_ACTIVE_COUNT; i++) {
-        float pos = fmodf(baseWheelPos + ((float)i * 256.0f / (float)LED_ACTIVE_COUNT), 256.0f);
+    for (uint16_t i = 0; i < LED_COUNT; i++) {
+        float pos = fmodf(baseWheelPos + ((float)i * 256.0f / (float)LED_COUNT), 256.0f);
         _strip.setPixelColor(i, colorWheel((uint8_t)pos));
     }
 

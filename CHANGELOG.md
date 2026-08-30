@@ -3,7 +3,17 @@
 ## [Unreleased]
 Nothing yet.
 
-## [1.3.0] - current
+## [1.3.1] - current
+### Changed
+- The barrel strip is now described as simply 85 WS2812s (5 rings of 17). The
+  old "160 physical / 85 active" split dated to an uncut bench strip that is
+  long gone. `LED_TOTAL_COUNT` is removed and `LED_ACTIVE_COUNT` is renamed to
+  `LED_COUNT`; the NeoPixel object is sized to 85 instead of 160. No behavior
+  change - only the first 85 were ever addressed anyway. README pinout updated
+  to match. (Bring-up-test sketches still carry the old 160 figure; they're
+  frozen v1.0.0 artifacts recording what was tested on the bench.)
+
+## [1.3.0]
 A second momentary button cycles the LED mode.
 
 ### Added

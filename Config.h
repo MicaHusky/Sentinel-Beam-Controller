@@ -10,7 +10,7 @@
 // Bump this alongside CHANGELOG.md whenever a build is worth calling a
 // version - printed over Serial at boot so a flashed board always tells you
 // exactly what firmware it's running.
-constexpr const char* FIRMWARE_VERSION = "1.3.0";
+constexpr const char* FIRMWARE_VERSION = "1.3.1";
 
 // ---------- Trigger ----------
 constexpr uint8_t  PIN_TRIGGER          = 4;   // INPUT_PULLUP, switch pulls to GND
@@ -57,10 +57,9 @@ constexpr uint32_t MOTOR_ACCEL_HZ_S2  = 14934;  // ~0.5s spin-up / spin-down
 // ---------- LEDs (WS2812 addressable strip) ----------
 constexpr uint8_t  PIN_LED_DATA     = 18; // clear of SD/I2S/stepper, USB D-/D+ (19/20), and OPI PSRAM pins (26-32)
 
-constexpr uint16_t LED_TOTAL_COUNT  = 160; // physical length of the bench strip - shrink this once the real strip is cut
-constexpr uint16_t LED_ACTIVE_COUNT = 85;  // only the first 85 are ever addressed
+constexpr uint16_t LED_COUNT        = 85; // barrel strip: 5 rings of 17 WS2812s
 constexpr uint8_t  LED_SET_SIZE     = 17;
-constexpr uint8_t  LED_NUM_SETS     = LED_ACTIVE_COUNT / LED_SET_SIZE; // 5
+constexpr uint8_t  LED_NUM_SETS     = LED_COUNT / LED_SET_SIZE; // 5
 
 constexpr float    LED_FIRE_WIPE_SECONDS     = 6.0f;  // idle-color->fire-color wipe duration while firing
 constexpr uint32_t LED_BRIGHTNESS_FADE_MS    = 800;   // 100% -> idle level, once fully back to idle color

@@ -6,8 +6,8 @@
 // =============================================================================
 // LEDManager
 //
-// Drives LED_NUM_SETS groups of LED_SET_SIZE WS2812s (only the first
-// LED_ACTIVE_COUNT of the physical strip are ever touched).
+// Drives the barrel strip: LED_NUM_SETS rings of LED_SET_SIZE WS2812s
+// (LED_COUNT total).
 //
 //   IDLE           : all sets pulse the idle color, breathing between
 //                     idleMinBrightness and idleMaxBrightness.

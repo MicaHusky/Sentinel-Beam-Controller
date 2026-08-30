@@ -47,7 +47,7 @@ No re-download, no re-extract - Arduino IDE just reads whatever's on disk.
 | microSD (boot-time only) | CS 10, SCK 5, MISO 6, MOSI 7 |
 | I2S DAC (PCM5102A) | DOUT 11, BCLK 12, LRCK 13 |
 | Stepper (TMC2209) | STEP 15, DIR 16, EN 17 (active LOW) |
-| Barrel LED strip | GPIO18 (160 physical / 85 active) |
+| Barrel LED strip | GPIO18 (85 WS2812s = 5 rings of 17) |
 | Fogger MOSFET | GPIO9 (active HIGH) |
 | Vent LED strip (left) | GPIO41 (80 LEDs) |
 | Vent LED strip (right) | GPIO40 (80 LEDs) |
