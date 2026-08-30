@@ -34,6 +34,11 @@ enum SystemState {
     STATE_COOLDOWN
 };
 
+// The boot progress bar maps one barrel ring to each boot phase, so it assumes
+// exactly five rings (inits / idle.wav / fire.wav / cooldown.wav / after).
+static_assert(LED_NUM_SETS == 5,
+              "boot progress bar assumes exactly 5 barrel rings");
+
 TriggerManager triggerManager;
 MotorManager   motorManager;
 AudioManager   audioManager;
@@ -44,6 +49,20 @@ DebugConsole   debugConsole;
 
 SystemState currentState = STATE_INIT;
 bool systemReady = false;
+bool motorInitOk = false; // latched from motorManager.begin(); gates boot ring 0's SD-mount step
+
+// AudioManager's boot-load progress -> barrel boot progress bar.
+//   phase 0     = SD card mounted            -> ring 0's final (5th) step
+//   phase 1/2/3 = idle/fire/cooldown.wav -> PSRAM, streaming -> rings 1/2/3
+void onAudioBootProgress(uint8_t phase, float fraction) {
+    if (phase == 0) {
+        // Only advance ring 0 past the motor step if the motor actually came
+        // up - otherwise leave the bar frozen on the step that failed.
+        if (motorInitOk) ledManager.setBootRingProgress(0, 1.0f);
+        return;
+    }
+    ledManager.setBootRingProgress(phase, fraction); // phase 1 -> ring 1, etc.
+}
 
 void setup() {
     Serial.begin(115200);
@@ -51,28 +70,45 @@ void setup() {
     Serial.println();
     Serial.printf("[System] Sentinel Beam firmware v%s booting...\n", FIRMWARE_VERSION);
 
-    triggerManager.begin();
+    // Barrel LEDs first, so every later boot step can report progress on them.
     ledManager.begin();
+    ledManager.beginBootSequence();
+    ledManager.setBootRingProgress(0, 1.0f / 5.0f); // ring 0 step 1: LED subsystem up
+
+    triggerManager.begin();
+    ledManager.setBootRingProgress(0, 2.0f / 5.0f); // step 2: trigger
+
     fogManager.begin();
+    ledManager.setBootRingProgress(0, 3.0f / 5.0f); // step 3: fog
 
-    bool motorOk = motorManager.begin();
-    bool audioOk = audioManager.begin();
+    motorInitOk = motorManager.begin();
+    if (motorInitOk) ledManager.setBootRingProgress(0, 4.0f / 5.0f); // step 4: motor
+    // step 5 (SD mount) is filled by onAudioBootProgress() during audioManager.begin()
 
+    audioManager.setBootProgressCallback(onAudioBootProgress);
+    bool audioOk = audioManager.begin(); // SD mount + the 3 WAV loads -> rings 0(final)/1/2/3
+
+    // The debug console must come up even on a failed boot - loop() keeps
+    // pumping debugConsole.update() so a dead board can still be inspected.
     settingsController.begin(&ledManager, &audioManager);
     debugConsole.begin(&ledManager, &audioManager, &settingsController);
 
-    if (motorOk && audioOk) {
+    if (motorInitOk && audioOk) {
+        ledManager.setBootRingProgress(4, 1.0f); // ring 4: settings + console up (headroom for future subsystems)
         systemReady = true;
         currentState = STATE_IDLE;
+        ledManager.bootFlash(BootResult::OK); // green x1
+        ledManager.endBootSequence();
         audioManager.playIdleLoop();
         Serial.println("[System] All checks passed - idle loop started, ready to fire.");
     } else {
         systemReady = false;
         Serial.print("[System] INIT FAILED (motor=");
-        Serial.print(motorOk ? "OK" : "FAILED");
+        Serial.print(motorInitOk ? "OK" : "FAILED");
         Serial.print(", audio=");
         Serial.print(audioOk ? "OK" : "FAILED");
         Serial.println(") - trigger input disabled, staying inert.");
+        ledManager.bootFlash(BootResult::HARD_FAIL); // red x2; frozen bars stay lit as a diagnostic
     }
 }
 

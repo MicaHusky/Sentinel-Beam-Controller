@@ -16,10 +16,11 @@ bool AudioManager::begin() {
         Serial.println("[AudioManager] SD.begin() FAILED - check wiring/CS pin");
         return false;
     }
+    if (_bootProgressCb) _bootProgressCb(0, 1.0f); // SD mounted - boot ring 0's final step
 
-    bool idleOk     = loadAssetToPSRAM(IDLE_WAV_PATH, _idleAsset);
-    bool fireOk     = loadAssetToPSRAM(FIRE_WAV_PATH, _fireAsset);
-    bool cooldownOk = loadAssetToPSRAM(COOLDOWN_WAV_PATH, _cooldownAsset);
+    bool idleOk     = loadAssetToPSRAM(IDLE_WAV_PATH, _idleAsset, 1);
+    bool fireOk     = loadAssetToPSRAM(FIRE_WAV_PATH, _fireAsset, 2);
+    bool cooldownOk = loadAssetToPSRAM(COOLDOWN_WAV_PATH, _cooldownAsset, 3);
 
     SD.end(); // SD is never touched again after this point, pass or fail
 
@@ -31,7 +32,7 @@ bool AudioManager::begin() {
     return idleOk && fireOk && cooldownOk;
 }
 
-bool AudioManager::loadAssetToPSRAM(const char* path, WavAsset& asset) {
+bool AudioManager::loadAssetToPSRAM(const char* path, WavAsset& asset, uint8_t progressPhase) {
     File f = SD.open(path, FILE_READ);
     if (!f) {
         Serial.printf("[AudioManager] could not open %s\n", path);
@@ -48,7 +49,19 @@ bool AudioManager::loadAssetToPSRAM(const char* path, WavAsset& asset) {
         return false;
     }
 
-    size_t readBytes = f.read(asset.buffer, asset.size);
+    // Copy in chunks rather than one blocking f.read(), so the boot progress
+    // ring for this phase can sweep as the bytes land (see AUDIO_LOAD_CHUNK_BYTES).
+    size_t readBytes = 0;
+    while (readBytes < asset.size) {
+        size_t want = asset.size - readBytes;
+        if (want > AUDIO_LOAD_CHUNK_BYTES) want = AUDIO_LOAD_CHUNK_BYTES;
+        size_t got = f.read(asset.buffer + readBytes, want);
+        if (got == 0) break; // short/failed read - caught by the size check below
+        readBytes += got;
+        if (_bootProgressCb) {
+            _bootProgressCb(progressPhase, (float)readBytes / (float)asset.size);
+        }
+    }
     f.close();
 
     if (readBytes != asset.size) {

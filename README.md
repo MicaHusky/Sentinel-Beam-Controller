@@ -61,6 +61,26 @@ Place at the root of the card:
 - `fire.wav`
 - `cooldown.wav` (a single file containing 5 distinct "ka-chunk" hits)
 
+## Boot indicator
+
+The barrel doubles as a boot progress bar. Each of its five 17-LED rings fills
+in cyan as one phase of startup completes:
+
+| Ring | Phase |
+|---|---|
+| 1 | Subsystem inits (LEDs, trigger, fog, motor, SD card mount) |
+| 2 | `idle.wav` copied into PSRAM |
+| 3 | `fire.wav` copied into PSRAM |
+| 4 | `cooldown.wav` copied into PSRAM |
+| 5 | Everything after (settings, debug console; reserved for future subsystems) |
+
+Rings 2-4 sweep as the audio files stream off the card. When it finishes, the
+whole barrel flashes the result: **green once** = all checks passed (idle loop
+starts), **red twice** = a required subsystem failed and the firmware is
+staying inert - the bars freeze where they stalled, so the unfilled ring shows
+you which subsystem to look at. (A yellow-twice "degraded mode" code is
+reserved for later.)
+
 ## Debug console
 
 Open the Serial Monitor at 115200 baud. Type `help` for the full list of

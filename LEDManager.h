@@ -53,11 +53,18 @@
 // =============================================================================
 
 enum class LEDState {
+    BOOT,
     IDLE,
     FIRING,
     COOLDOWN_WIPE,
     COOLDOWN_FADE
 };
+
+// Result code the barrel flashes once the boot sequence finishes (see
+// beginBootSequence()): GREEN x1 / YELLOW x2 / RED x2. RECOVERABLE is wired
+// through but not reachable yet - it needs the planned config.txt /
+// audio-optional path that lets the prop run in a degraded mode.
+enum class BootResult { OK, RECOVERABLE, HARD_FAIL };
 
 class LEDManager {
 public:
@@ -68,6 +75,19 @@ public:
 
     void notifyFireStart(); // trigger pressed
     void notifyFireEnd();   // trigger released, or fire.wav reached EOF
+
+    // ---- boot progress bar -------------------------------------------------
+    // The 5 barrel rings each act as an independent 17-LED loading bar for one
+    // boot phase (ring 0 = subsystem inits, rings 1-3 = the three WAV loads,
+    // ring 4 = everything after). Driven synchronously by the main sketch from
+    // setup(), before loop()/update() run, so each of these renders and
+    // show()s immediately. The vent strips are held dark for the whole
+    // sequence. Colors/brightness/flash timing are Config.h boot-time
+    // constants - there is deliberately no runtime setter (see Config.h).
+    void beginBootSequence();
+    void setBootRingProgress(uint8_t ring, float fraction0to1);
+    void bootFlash(BootResult result); // BLOCKING (~0.3-0.6s of delay()); leaves the bars lit
+    void endBootSequence();             // hand off to IDLE breathing
 
     // ---- runtime-tunable settings (each also has a getter for DebugConsole's help output) ----
     void setIdleColor(uint8_t r, uint8_t g, uint8_t b);
@@ -116,6 +136,7 @@ public:
     float getIdleMaxBrightness()   const { return _idleMaxBrightness; }
 
 private:
+    void renderBoot();
     void renderIdle();
     void renderFiring();
     void renderCooldownWipe();
@@ -148,6 +169,10 @@ private:
     // notifyFireEnd() from _setMix[]. Only this many kachunk beats are used.
     uint8_t _neededBeats = 0;
     bool _cooldownWipeJustCompleted = false;
+
+    // Per-ring fill for the boot progress bar, 0.0..1.0. Only meaningful while
+    // _state == LEDState::BOOT.
+    float _bootRingProgress[LED_NUM_SETS] = {0};
 
     // ---- runtime settings, seeded from Config.h defaults in the constructor ----
     uint8_t _idleR, _idleG, _idleB;

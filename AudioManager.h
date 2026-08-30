@@ -38,6 +38,14 @@ struct WavAsset {
 
 class AudioManager {
 public:
+    // Optional boot-time load-progress hook, used by the main sketch to drive
+    // the barrel's boot progress bar. phase: 0 = SD card mounted, 1 = idle.wav,
+    // 2 = fire.wav, 3 = cooldown.wav; fraction is 0..1 within that phase
+    // (always 1.0 for phase 0). AudioManager itself knows nothing about the
+    // LEDs - it only emits progress. Set this before begin().
+    using BootProgressFn = void (*)(uint8_t phase, float fraction);
+    void setBootProgressCallback(BootProgressFn cb) { _bootProgressCb = cb; }
+
     bool begin(); // load idle/fire/cooldown into PSRAM; false if ANY of them fail
 
     void playIdleLoop();
@@ -60,7 +68,7 @@ public:
     float getGain() const { return _gain; }
 
 private:
-    bool loadAssetToPSRAM(const char* path, WavAsset& asset);
+    bool loadAssetToPSRAM(const char* path, WavAsset& asset, uint8_t progressPhase);
     void startTrack(WavAsset& asset, AudioTrack track);
     void teardownPlayback();
 
@@ -76,4 +84,5 @@ private:
     bool _fireEOF     = false;
     bool _cooldownEOF = false;
     float _gain = AUDIO_GAIN;
+    BootProgressFn _bootProgressCb = nullptr;
 };

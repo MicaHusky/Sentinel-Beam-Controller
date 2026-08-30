@@ -10,7 +10,7 @@
 // Bump this alongside CHANGELOG.md whenever a build is worth calling a
 // version - printed over Serial at boot so a flashed board always tells you
 // exactly what firmware it's running.
-constexpr const char* FIRMWARE_VERSION = "1.1.0";
+constexpr const char* FIRMWARE_VERSION = "1.2.0";
 
 // ---------- Trigger ----------
 constexpr uint8_t  PIN_TRIGGER          = 4;   // INPUT_PULLUP, switch pulls to GND
@@ -30,6 +30,12 @@ constexpr uint8_t PIN_I2S_DOUT = 11; // -> DIN on PCM5102A
 constexpr uint8_t PIN_I2S_BCLK = 12;
 constexpr uint8_t PIN_I2S_LRCK = 13;
 constexpr float    AUDIO_GAIN  = 0.15f;
+
+// Each WAV is copied off the SD card into PSRAM in chunks this size, rather
+// than one blocking read, so the boot progress bar (see below) can sweep as
+// the bytes land. Purely a cosmetic granularity knob - larger means fewer LED
+// updates during the load, smaller means a smoother sweep.
+constexpr size_t AUDIO_LOAD_CHUNK_BYTES = 16384;
 
 // ---------- Stepper (TMC2209, STEP/DIR mode) ----------
 constexpr uint8_t  PIN_STEPPER_STEP   = 15;
@@ -71,6 +77,31 @@ constexpr uint8_t LED_COLOR_IDLE_DEFAULT_R = 0xDF, LED_COLOR_IDLE_DEFAULT_G = 0x
 constexpr uint8_t LED_COLOR_FIRE_DEFAULT_R = 0x64, LED_COLOR_FIRE_DEFAULT_G = 0x70, LED_COLOR_FIRE_DEFAULT_B = 0xE2;
 
 constexpr float LED_RAINBOW_SPEED_DEFAULT = 40.0f; // color-wheel positions/sec the chase advances by
+
+// ---------- Boot progress bar (barrel rings as a 5-phase loading indicator) ----------
+// During setup() the 5 barrel rings each act as an INDEPENDENT 17-LED loading
+// bar, one per boot phase:
+//   ring 0 : subsystem inits   (LED -> trigger -> fog -> motor -> SD mount)
+//   ring 1 : idle.wav      -> PSRAM  (sweeps as the bytes stream in)
+//   ring 2 : fire.wav      -> PSRAM
+//   ring 3 : cooldown.wav  -> PSRAM
+//   ring 4 : everything after (settings + debug console; also headroom for
+//            future major subsystems, e.g. a web-UI init)
+// The bars fill in cyan, held at LED_BOOT_BRIGHTNESS for the whole sequence.
+// On completion the entire barrel flashes a result code: green x1 = all checks
+// passed, yellow x2 = recoverable / degraded (wired but not reachable yet -
+// needs the planned config.txt / audio-optional path), red x2 = hard fail
+// (firmware refuses to boot; the partly-filled bars stay lit as a diagnostic).
+// These are boot-time-only visuals - there is no runtime setter for them, as
+// the Serial console isn't up yet while they play and there is no persistence
+// layer to carry a change to the next boot.
+constexpr uint8_t LED_COLOR_BOOT_R      = 0x33, LED_COLOR_BOOT_G      = 0xB5, LED_COLOR_BOOT_B      = 0xE5; // cyan fill
+constexpr uint8_t LED_COLOR_BOOT_OK_R   = 0x00, LED_COLOR_BOOT_OK_G   = 0xC8, LED_COLOR_BOOT_OK_B   = 0x00; // green x1
+constexpr uint8_t LED_COLOR_BOOT_WARN_R = 0xE0, LED_COLOR_BOOT_WARN_G = 0xA0, LED_COLOR_BOOT_WARN_B = 0x00; // yellow x2
+constexpr uint8_t LED_COLOR_BOOT_FAIL_R = 0xC8, LED_COLOR_BOOT_FAIL_G = 0x00, LED_COLOR_BOOT_FAIL_B = 0x00; // red x2
+constexpr float    LED_BOOT_BRIGHTNESS   = 0.50f; // fixed for the whole sequence, fill and result flash alike
+constexpr uint16_t LED_BOOT_FLASH_ON_MS  = 160;   // result-code per-flash on time
+constexpr uint16_t LED_BOOT_FLASH_OFF_MS = 160;   // gap between flashes / before the idle handoff
 
 // ---------- Vent LEDs (2 strips, cooling vents on either side of the grip) ----------
 // Purely single-color/single-brightness accent lighting - no wipe or kachunk

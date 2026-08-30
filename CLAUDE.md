@@ -70,6 +70,19 @@ frequently didn't work as given.
 - **The two vent LED strips never change hue** - only brightness - between
   idle and firing. This was explicit and specific; don't add a color wipe
   to them to match the barrel's behavior.
+- **Boot progress bar (v1.2.0):** during `setup()` the 5 barrel rings each act
+  as an independent 17-LED loading bar for one boot phase - ring 0 = subsystem
+  inits (LED/trigger/fog/motor/SD mount), rings 1-3 = the `idle`/`fire`/
+  `cooldown` WAV loads (which sweep as bytes stream in - this is why
+  `loadAssetToPSRAM` reads in chunks now), ring 4 = everything after, with
+  deliberate headroom for future major subsystems. Fills cyan at 50%. On a
+  hard fail the bars freeze where they stalled (diagnostic), then the barrel
+  flashes the result code: green x1 = OK, red x2 = hard fail. Yellow x2
+  (`BootResult::RECOVERABLE`) is wired but unreachable until the `config.txt`
+  / audio-optional path below exists. `ledManager.begin()` runs first in
+  `setup()` now so the bar is live for the rest of boot. The boot visuals are
+  boot-time-only `Config.h` constants with no console setter, on purpose (the
+  console isn't up yet and there's no persistence).
 - A WiFi captive-portal control page was built, then explicitly removed
   (reverted to WiFi-less) because there was no persistence layer for its
   changes yet. `SettingsController` was kept because the Serial console
@@ -83,12 +96,13 @@ frequently didn't work as given.
   which WAV plays in which state, barrel speed/direction, audio mode
   (normal/quiet/silent), fog on/off, and independent enable/disable for
   every subsystem (so e.g. a jammed barrel can be disabled at a convention
-  while keeping lights/sound/fog working). Boot status feedback via the
-  barrel LEDs: red flash x2 = hard fail (refuse to boot), yellow flash x2 =
-  recoverable error (fall back to lights+motion only), green flash x1 = all
-  checks passed. A missing config file is a recoverable case, not a hard
-  fail. LED settings are explicitly deferred out of this config file until
-  later.
+  while keeping lights/sound/fog working). A missing config file is a
+  recoverable case, not a hard fail. LED settings are explicitly deferred
+  out of this config file until later. The barrel-LED boot status feedback
+  this was meant to pair with is now built (see "Boot progress bar" above):
+  green x1 / red x2 are live; **yellow x2 = recoverable (fall back to
+  lights+motion only) becomes reachable once this config path exists** and
+  the firmware has a real degraded-run mode to enter.
 - **Additional LED banks**: a "radiator" bank and body-detail LEDs, plus one
   spare output for future expansion. Should follow the same state machine
   as the vent strips/barrel, colors/behavior not yet decided.

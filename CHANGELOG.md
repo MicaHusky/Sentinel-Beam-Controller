@@ -3,7 +3,49 @@
 ## [Unreleased]
 Nothing yet.
 
-## [1.1.0] - current
+## [1.2.0] - current
+Boot sequence is now shown on the barrel: the five rings of 17 LEDs each act as
+an independent loading bar for one boot phase.
+
+### Added
+- **Boot progress bar on the barrel.** Each ring fills in cyan (`33B5E5`, held
+  at 50% brightness) as its phase completes:
+  - ring 0: subsystem inits (LED -> trigger -> fog -> motor -> SD mount)
+  - ring 1: `idle.wav` copied into PSRAM
+  - ring 2: `fire.wav` copied into PSRAM
+  - ring 3: `cooldown.wav` copied into PSRAM
+  - ring 4: everything after (settings + debug console), with headroom left
+    for future major subsystems (e.g. a web-UI init)
+  Rings 1-3 sweep progressively as the bytes stream off the SD card. On a hard
+  fail the bars freeze where they stalled, so the unfilled ring points at the
+  subsystem that failed.
+- **Boot result flash** on the whole barrel once the sequence finishes, per the
+  project's long-standing plan: green x1 = all checks passed, red x2 = hard
+  fail (firmware refuses to boot). Yellow x2 (recoverable / degraded) is wired
+  through `BootResult::RECOVERABLE` but nothing triggers it yet - it needs the
+  planned boot-time `config.txt` / audio-optional path.
+- `LEDManager` boot API: `beginBootSequence()`, `setBootRingProgress()`,
+  `bootFlash()`, `endBootSequence()`, plus a new `LEDState::BOOT`. The vent
+  strips are held dark for the whole sequence and come up with the normal idle
+  breathe once the board is ready.
+- `AudioManager::setBootProgressCallback()` - a plain function-pointer hook the
+  main sketch uses to drive the WAV-load rings. `AudioManager` still knows
+  nothing about the LEDs; it only emits `(phase, fraction)` progress.
+
+### Changed
+- WAV files are now copied into PSRAM in `AUDIO_LOAD_CHUNK_BYTES` (16 KB) chunks
+  instead of one blocking `f.read()`, so the boot progress rings can sweep as
+  the data lands. The one-read-at-boot / SD-then-idle contract is unchanged.
+- Boot order in `setup()`: `ledManager.begin()` now runs first (before trigger
+  and fog) so the progress bar is live for the rest of boot.
+
+### Notes
+- The boot visuals (cyan/green/yellow/red colors, 50% brightness, flash timing)
+  are boot-time-only constants in `Config.h` with no debug-console setter: the
+  Serial console isn't up while they play, and there's no persistence layer to
+  carry a change to the next boot.
+
+## [1.1.0]
 ### Changed
 - Default vent LED peak brightness (`LED_VENT_MAX_BRIGHTNESS`) lowered from
   50% to 25% - the vents were reading brighter than intended next to the

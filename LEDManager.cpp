@@ -64,6 +64,88 @@ void LEDManager::notifyFireEnd() {
     Serial.printf("[LEDManager] -> COOLDOWN_WIPE (%u ring(s) need reverting)\n", _neededBeats);
 }
 
+// ---- boot progress bar ------------------------------------------------------
+
+void LEDManager::beginBootSequence() {
+    _state = LEDState::BOOT;
+    for (uint8_t i = 0; i < LED_NUM_SETS; i++) _bootRingProgress[i] = 0.0f;
+
+    _strip.clear();
+    _strip.show();
+    _ventLeft.clear();  _ventLeft.show();   // vents stay dark for the whole boot sequence
+    _ventRight.clear(); _ventRight.show();
+
+    Serial.println("[LEDManager] -> BOOT (barrel rings = 5-phase loading bar)");
+}
+
+void LEDManager::setBootRingProgress(uint8_t ring, float fraction0to1) {
+    if (ring >= LED_NUM_SETS) return;
+    if (fraction0to1 < 0.0f) fraction0to1 = 0.0f;
+    if (fraction0to1 > 1.0f) fraction0to1 = 1.0f;
+    _bootRingProgress[ring] = fraction0to1;
+    if (_state == LEDState::BOOT) renderBoot(); // setup() drives this synchronously - paint now
+}
+
+void LEDManager::renderBoot() {
+    const uint32_t lit = _strip.Color((uint8_t)(LED_COLOR_BOOT_R * LED_BOOT_BRIGHTNESS),
+                                      (uint8_t)(LED_COLOR_BOOT_G * LED_BOOT_BRIGHTNESS),
+                                      (uint8_t)(LED_COLOR_BOOT_B * LED_BOOT_BRIGHTNESS));
+
+    for (uint8_t s = 0; s < LED_NUM_SETS; s++) {
+        uint16_t litCount = (uint16_t)(_bootRingProgress[s] * (float)LED_SET_SIZE + 0.5f);
+        uint16_t startLed = (uint16_t)s * LED_SET_SIZE;
+        for (uint16_t i = 0; i < LED_SET_SIZE; i++) {
+            _strip.setPixelColor(startLed + i, i < litCount ? lit : (uint32_t)0);
+        }
+    }
+    _strip.show();
+}
+
+void LEDManager::bootFlash(BootResult result) {
+    uint8_t r, g, b, count;
+    const char* label;
+    switch (result) {
+        case BootResult::OK:
+            r = LED_COLOR_BOOT_OK_R;   g = LED_COLOR_BOOT_OK_G;   b = LED_COLOR_BOOT_OK_B;
+            count = 1; label = "GREEN x1 (all checks passed)";
+            break;
+        case BootResult::RECOVERABLE:
+            r = LED_COLOR_BOOT_WARN_R; g = LED_COLOR_BOOT_WARN_G; b = LED_COLOR_BOOT_WARN_B;
+            count = 2; label = "YELLOW x2 (recoverable - degraded operation)";
+            break;
+        default: // HARD_FAIL
+            r = LED_COLOR_BOOT_FAIL_R; g = LED_COLOR_BOOT_FAIL_G; b = LED_COLOR_BOOT_FAIL_B;
+            count = 2; label = "RED x2 (hard fail - refusing to boot)";
+            break;
+    }
+
+    const uint32_t on = _strip.Color((uint8_t)(r * LED_BOOT_BRIGHTNESS),
+                                     (uint8_t)(g * LED_BOOT_BRIGHTNESS),
+                                     (uint8_t)(b * LED_BOOT_BRIGHTNESS));
+
+    for (uint8_t f = 0; f < count; f++) {
+        for (uint16_t i = 0; i < LED_ACTIVE_COUNT; i++) _strip.setPixelColor(i, on);
+        _strip.show();
+        delay(LED_BOOT_FLASH_ON_MS);
+        _strip.clear();
+        _strip.show();
+        delay(LED_BOOT_FLASH_OFF_MS);
+    }
+
+    // On a non-OK result, leave the frozen bars lit as a diagnostic (the
+    // unfilled ring points at the subsystem that failed). On OK the barrel
+    // stays dark here and the caller hands straight off to idle breathing.
+    if (result != BootResult::OK) renderBoot();
+
+    Serial.printf("[LEDManager] boot result flash: %s\n", label);
+}
+
+void LEDManager::endBootSequence() {
+    _state = LEDState::IDLE;
+    _stateStartMs = millis();
+    Serial.println("[LEDManager] -> IDLE (breathing)");
+}
+
 void LEDManager::setIdleColor(uint8_t r, uint8_t g, uint8_t b) {
     _idleR = r; _idleG = g; _idleB = b;
 }
@@ -136,6 +218,7 @@ void LEDManager::update() {
         renderRainbow();
     } else {
         switch (_state) {
+            case LEDState::BOOT:           renderBoot();          break;
             case LEDState::IDLE:           renderIdle();          break;
             case LEDState::FIRING:         renderFiring();        break;
             case LEDState::COOLDOWN_WIPE:  renderCooldownWipe();  break;
