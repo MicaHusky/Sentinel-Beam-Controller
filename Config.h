@@ -10,7 +10,7 @@
 // Bump this alongside CHANGELOG.md whenever a build is worth calling a
 // version - printed over Serial at boot so a flashed board always tells you
 // exactly what firmware it's running.
-constexpr const char* FIRMWARE_VERSION = "1.0.0";
+constexpr const char* FIRMWARE_VERSION = "1.1.0";
 
 // ---------- Trigger ----------
 constexpr uint8_t  PIN_TRIGGER          = 4;   // INPUT_PULLUP, switch pulls to GND
@@ -83,7 +83,7 @@ constexpr uint8_t  PIN_VENT_RIGHT  = 40; // other side of the cooling vents (LED
 constexpr uint16_t VENT_LED_COUNT  = 80; // 8 groups of 10 LEDs per side
 
 constexpr uint8_t LED_COLOR_VENT_DEFAULT_R = 0xE8, LED_COLOR_VENT_DEFAULT_G = 0xA0, LED_COLOR_VENT_DEFAULT_B = 0x20; // slightly orangey-yellow
-constexpr float   LED_VENT_MAX_BRIGHTNESS  = 0.50f; // peak of the idle breathe range (shares the barrel's min)
+constexpr float   LED_VENT_MAX_BRIGHTNESS  = 0.25f; // peak of the idle breathe range (shares the barrel's min)
 
 // ---------- Fogger (MOSFET-switched, digital on/off only) ----------
 constexpr uint8_t PIN_FOG = 9; // active HIGH into MOSFET gate

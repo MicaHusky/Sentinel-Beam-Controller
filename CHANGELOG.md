@@ -3,7 +3,13 @@
 ## [Unreleased]
 Nothing yet.
 
-## [1.0.0] - current
+## [1.1.0] - current
+### Changed
+- Default vent LED peak brightness (`LED_VENT_MAX_BRIGHTNESS`) lowered from
+  50% to 25% - the vents were reading brighter than intended next to the
+  barrel at idle. Still runtime-tunable via the Serial debug console.
+
+## [1.0.0]
 First fully hardware-tested build - every subsystem on the PCB has passed its
 own bring-up test (see `bring-up-tests/`). WiFi control page removed (see
 0.9.0) in favor of staying WiFi-less for now; two new vent LED strips added.
