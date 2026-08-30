@@ -1,0 +1,10 @@
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+*.orig
+
+# Arduino CLI build output, if you ever build from the command line
+build/
