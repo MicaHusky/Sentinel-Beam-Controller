@@ -1,3 +1,4 @@
+// Sentinel Beam firmware  v1.3.2  -  add this single-line version marker to the sketch
 // =============================================================================
 // Sentinel Beam - main sketch
 //

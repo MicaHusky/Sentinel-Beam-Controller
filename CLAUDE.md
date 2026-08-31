@@ -6,6 +6,13 @@ what was built and when. This file covers the *why* behind decisions that
 aren't obvious from the code alone - things worth knowing before changing
 them.
 
+**Release bookkeeping:** any change worth a `CHANGELOG.md` entry gets a minor
+version bump (e.g. 1.3.0 -> 1.4.0; patch bumps like 1.3.1 only when explicitly
+asked), applied in three places together: `FIRMWARE_VERSION` in `Config.h`,
+a new `CHANGELOG.md` section, and the single version-marker line at the very
+top of `SentinelBeam.ino` (current version + short descriptor, replaced in
+full each bump - it is not a running history).
+
 ## Project
 
 A full-scale, functional Halo Infinite Sentinel Beam prop. ESP32-S3 firmware

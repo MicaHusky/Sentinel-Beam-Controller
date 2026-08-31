@@ -3,7 +3,13 @@
 ## [Unreleased]
 Nothing yet.
 
-## [1.3.1] - current
+## [1.3.2] - current
+### Added
+- A single-line version marker at the very top of `SentinelBeam.ino` (current
+  version + a short descriptor). It is replaced in full on every version bump -
+  it is not a running history; that is what this file is for.
+
+## [1.3.1]
 ### Changed
 - The barrel strip is now described as simply 85 WS2812s (5 rings of 17). The
   old "160 physical / 85 active" split dated to an uncut bench strip that is
