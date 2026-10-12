@@ -139,3 +139,8 @@ firmware) used to validate each subsystem on a freshly populated PCB one at
 a time. All of them have passed as of `v1.0.0`. If you're debugging a
 hardware issue on a *new* board revision, these are the right starting
 point rather than debugging through the full firmware.
+
+**Known gotcha:** if the barrel won't reach full RPM *and* the speaker seems
+dead at the same time, check the 12V trigger board's DIP switch before
+touching firmware - it has reset itself to 5V unintentionally before, causing
+exactly that pair of symptoms (see README "Troubleshooting").

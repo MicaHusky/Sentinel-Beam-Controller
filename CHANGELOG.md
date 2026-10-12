@@ -3,7 +3,16 @@
 ## [Unreleased]
 Nothing yet.
 
-## [1.3.2] - current
+## [1.3.3] - current
+### Added
+- README "Troubleshooting" section (plus a pointer in `CLAUDE.md`): if the
+  barrel won't spin up to full RPM *and* the speaker seems dead at the same
+  time, check the 12V trigger board first. Its DIP switch has reset itself
+  to 5V unintentionally before, which starved both the stepper driver and the
+  audio amp. Documented because the symptoms point toward firmware or the
+  motor/amp, not the power input. Docs only, no firmware behavior change.
+
+## [1.3.2]
 ### Added
 - A single-line version marker at the very top of `SentinelBeam.ino` (current
   version + a short descriptor). It is replaced in full on every version bump -

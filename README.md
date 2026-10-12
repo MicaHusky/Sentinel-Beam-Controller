@@ -102,6 +102,15 @@ live-tunable settings (colors, timing, brightness, rainbow mode). Changes are
 runtime-only - they reset to the defaults in `Config.h` on the next power
 cycle.
 
+## Troubleshooting
+
+**Barrel won't spin up to full RPM *and* the speaker seems dead -> check the
+12V trigger board first.** If both symptoms show up together, look at the
+power-delivery trigger board's DIP switch before debugging the firmware or the
+motor/amp. Its voltage-select switch has been seen to reset itself to **5V**
+unintentionally, which starves both the stepper driver and the audio amp. Set
+it back to **12V** and both problems go away. No firmware change is needed.
+
 ## Repo layout
 
 - `SentinelBeam.ino` + the various `*Manager` classes - the actual firmware.
