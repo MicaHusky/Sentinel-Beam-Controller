@@ -9,22 +9,87 @@ bool AudioManager::begin() {
     _out->SetPinout(PIN_I2S_BCLK, PIN_I2S_LRCK, PIN_I2S_DOUT);
     _out->SetGain(_gain);
 
-    SPIClass sdSPI(HSPI);
-    sdSPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
+    if (!mountSD()) return false;
+    bool ok = loadSoundSet("");
+    unmountSD(); // card goes idle again until/unless a mode switch is requested
+    return ok;
+}
 
-    if (!SD.begin(PIN_SD_CS, sdSPI)) {
-        Serial.println("[AudioManager] SD.begin() FAILED - check wiring/CS pin");
+bool AudioManager::mountSD() {
+    if (_sdMounted) return true;
+    _sdSPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
+    if (!SD.begin(PIN_SD_CS, _sdSPI)) {
+        Serial.println("[AudioManager] SD.begin() FAILED - check card / wiring / CS pin");
+        _sdSPI.end();
         return false;
     }
-    if (_bootProgressCb) _bootProgressCb(0, 1.0f); // SD mounted - boot ring 0's final step
+    _sdMounted = true;
+    Serial.println("[AudioManager] SD card mounted");
+    if (_bootProgressCb) _bootProgressCb(0, 1.0f); // SD mounted (boot: ring 0's final step)
+    return true;
+}
 
-    bool idleOk     = loadAssetToPSRAM(IDLE_WAV_PATH, _idleAsset, 1);
-    bool fireOk     = loadAssetToPSRAM(FIRE_WAV_PATH, _fireAsset, 2);
-    bool cooldownOk = loadAssetToPSRAM(COOLDOWN_WAV_PATH, _cooldownAsset, 3);
+void AudioManager::unmountSD() {
+    if (!_sdMounted) return;
+    SD.end();
+    _sdSPI.end();
+    _sdMounted = false;
+    Serial.println("[AudioManager] SD card unmounted (idle)");
+}
 
-    SD.end(); // SD is never touched again after this point, pass or fail
+bool AudioManager::fileExists(const String& path) {
+    if (!_sdMounted) return false;
+    File f = SD.open(path, FILE_READ);
+    if (!f) return false;
+    bool isFile = !f.isDirectory();
+    f.close();
+    return isFile;
+}
 
-    Serial.printf("[AudioManager] idle.wav: %s | fire.wav: %s | cooldown.wav: %s\n",
+bool AudioManager::readTextFile(const String& path, String& out, size_t maxBytes) {
+    out = "";
+    if (!_sdMounted) return false;
+    File f = SD.open(path, FILE_READ);
+    if (!f || f.isDirectory()) {
+        Serial.printf("[AudioManager] could not open %s\n", path.c_str());
+        if (f) f.close();
+        return false;
+    }
+    if ((size_t)f.size() > maxBytes) {
+        Serial.printf("[AudioManager] %s is too large (%u bytes, max %u)\n",
+                      path.c_str(), (unsigned)f.size(), (unsigned)maxBytes);
+        f.close();
+        return false;
+    }
+    out.reserve(f.size() + 1);
+    while (f.available()) out += (char)f.read();
+    f.close();
+    Serial.printf("[AudioManager] read %s (%u bytes)\n", path.c_str(), (unsigned)out.length());
+    return true;
+}
+
+void AudioManager::freeAsset(WavAsset& asset) {
+    if (asset.buffer) heap_caps_free(asset.buffer);
+    asset.buffer = nullptr;
+    asset.size = 0;
+    asset.loaded = false;
+}
+
+bool AudioManager::loadSoundSet(const String& dir) {
+    return loadSoundSet(dir, dir, dir);
+}
+
+bool AudioManager::loadSoundSet(const String& idleDir, const String& fireDir, const String& cooldownDir) {
+    stopAll(); // nothing may be reading a buffer we're about to free
+    freeAsset(_idleAsset);
+    freeAsset(_fireAsset);
+    freeAsset(_cooldownAsset);
+
+    bool idleOk     = loadAssetToPSRAM(idleDir     + IDLE_WAV_PATH,     _idleAsset,     1);
+    bool fireOk     = loadAssetToPSRAM(fireDir     + FIRE_WAV_PATH,     _fireAsset,     2);
+    bool cooldownOk = loadAssetToPSRAM(cooldownDir + COOLDOWN_WAV_PATH, _cooldownAsset, 3);
+
+    Serial.printf("[AudioManager] sound set: idle.wav: %s | fire.wav: %s | cooldown.wav: %s\n",
                   idleOk ? "OK" : "FAILED",
                   fireOk ? "OK" : "FAILED",
                   cooldownOk ? "OK" : "FAILED");
@@ -32,8 +97,9 @@ bool AudioManager::begin() {
     return idleOk && fireOk && cooldownOk;
 }
 
-bool AudioManager::loadAssetToPSRAM(const char* path, WavAsset& asset, uint8_t progressPhase) {
-    File f = SD.open(path, FILE_READ);
+bool AudioManager::loadAssetToPSRAM(const String& pathStr, WavAsset& asset, uint8_t progressPhase) {
+    const char* path = pathStr.c_str();
+    File f = SD.open(pathStr, FILE_READ);
     if (!f) {
         Serial.printf("[AudioManager] could not open %s\n", path);
         return false;
@@ -45,12 +111,13 @@ bool AudioManager::loadAssetToPSRAM(const char* path, WavAsset& asset, uint8_t p
     if (!asset.buffer) {
         Serial.printf("[AudioManager] PSRAM alloc FAILED for %s (%u bytes requested)\n",
                       path, (unsigned)asset.size);
+        asset.size = 0;
         f.close();
         return false;
     }
 
-    // Copy in chunks rather than one blocking f.read(), so the boot progress
-    // ring for this phase can sweep as the bytes land (see AUDIO_LOAD_CHUNK_BYTES).
+    // Copy in chunks rather than one blocking f.read(), so the progress hook
+    // (boot bar / status indicator) can keep animating as the bytes land.
     size_t readBytes = 0;
     while (readBytes < asset.size) {
         size_t want = asset.size - readBytes;
@@ -67,9 +134,7 @@ bool AudioManager::loadAssetToPSRAM(const char* path, WavAsset& asset, uint8_t p
     if (readBytes != asset.size) {
         Serial.printf("[AudioManager] short read on %s (%u/%u bytes)\n",
                       path, (unsigned)readBytes, (unsigned)asset.size);
-        heap_caps_free(asset.buffer);
-        asset.buffer = nullptr;
-        asset.size = 0;
+        freeAsset(asset);
         return false;
     }
 

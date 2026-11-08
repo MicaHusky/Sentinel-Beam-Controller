@@ -14,6 +14,8 @@
 //   FIRING         : brightness jumps to 100%; sets fade idle-color->fire-color
 //                     one at a time over fireWipeSeconds. If firing runs
 //                     longer than that, everything just stays full fire-color.
+//                     A rainbow fire color skips the wipe: the whole barrel
+//                     erupts into rainbow the instant the trigger is pulled.
 //   COOLDOWN_WIPE  : rings HARD-SWITCH back to the idle color (no fade, an
 //                     instant cut) in reverse order, each cued by one of 5
 //                     manually-tuned "kachunk" timestamps rather than a fixed
@@ -35,21 +37,27 @@
 // LEDManager fully independent of AudioManager, same as every other manager.
 //
 // Two vent LED strips (left/right cooling vents) ride along with all four
-// states above, but with much simpler behavior: a single fixed color that
-// never changes hue, only intensity - breathing at idle (same phase as the
-// barrel, capped at its own lower peak), full brightness while firing/
-// cooling down, and rainbow mode overrides them exactly like the barrel.
+// states above, with much simpler behavior: ventColor breathing at idle (same
+// phase as the barrel, capped at its own lower peak), ventFireColor at full
+// brightness while firing and through the kachunk wipe, then ventColor again
+// for the fade back to idle. Stock ventFireColor == ventColor, so stock vents
+// only ever change intensity.
 //
-// Colors, wipe/breathe timing, brightness range, and the kachunk
-// timestamps/tail are all RUNTIME-TUNABLE - Config.h values are only the
-// boot-time defaults. This is what DebugConsole's idleColor=, fireColor=,
-// fireWipeSeconds=, idleBreatheSeconds=, idleMinBrightness=,
-// idleMaxBrightness=, kachunk1..kachunk5=, kachunkTimestamps=, and
-// kachunkTail= commands adjust live.
+// Any of the four color slots (idle / fire / vent / ventFire) can be "rainbow"
+// instead of a fixed color: that slot renders a color-wheel chase at a fixed
+// rainbowBrightness (rainbow never breathes).
 //
-// Like the other managers, this only reacts to notifyFireStart() /
-// notifyFireEnd() calls from the main sketch - it has no idea whether audio
-// or the motor are involved.
+// A 2-LED status indicator normally mirrors the vents. The main sketch can
+// take it over to show a mode-switch pattern (green) or a fault (red) - see
+// showModeIndicator() / showFaultIndicator().
+//
+// Colors, wipe/breathe timing, brightness range, rainbow speed/brightness,
+// and the kachunk timestamps/tail are all RUNTIME-TUNABLE (debug console or
+// an alt mode's mode.txt) - Config.h values are only the stock defaults, which
+// resetToDefaults() restores.
+//
+// Like the other managers, this only reacts to calls from the main sketch -
+// it has no idea whether audio or the motor are involved.
 // =============================================================================
 
 enum class LEDState {
@@ -60,11 +68,24 @@ enum class LEDState {
     COOLDOWN_FADE
 };
 
-// Result code the barrel flashes once the boot sequence finishes (see
-// beginBootSequence()): GREEN x1 / YELLOW x2 / RED x2. RECOVERABLE is wired
-// through but not reachable yet - it needs the planned config.txt /
-// audio-optional path that lets the prop run in a degraded mode.
+// Result code the barrel (and status indicator) flashes once the boot sequence
+// finishes (see beginBootSequence()): GREEN x1 / YELLOW x2 / RED x2.
+// RECOVERABLE is wired through but not reachable yet - it needs the planned
+// config.txt / audio-optional path that lets the prop run in a degraded mode.
 enum class BootResult { OK, RECOVERABLE, HARD_FAIL };
+
+enum class ColorSlot : uint8_t {
+    IDLE = 0,  // barrel at idle
+    FIRE,      // barrel once wiped during firing
+    VENT,      // vents at idle / cooldown fade
+    VENT_FIRE, // vents while firing + kachunk wipe
+    COUNT
+};
+
+struct SlotColor {
+    uint8_t r = 0, g = 0, b = 0;
+    bool rainbow = false;
+};
 
 class LEDManager {
 public:
@@ -81,31 +102,44 @@ public:
     // boot phase (ring 0 = subsystem inits, rings 1-3 = the three WAV loads,
     // ring 4 = everything after). Driven synchronously by the main sketch from
     // setup(), before loop()/update() run, so each of these renders and
-    // show()s immediately. The vent strips are held dark for the whole
-    // sequence. Colors/brightness/flash timing are Config.h boot-time
-    // constants - there is deliberately no runtime setter (see Config.h).
+    // show()s immediately. The vent strips and status indicator are held dark
+    // for the whole sequence. Colors/brightness/flash timing are Config.h
+    // boot-time constants - there is deliberately no runtime setter.
     void beginBootSequence();
     void setBootRingProgress(uint8_t ring, float fraction0to1);
-    void bootFlash(BootResult result); // BLOCKING (~0.3-0.6s of delay()); leaves the bars lit
+    void bootFlash(BootResult result); // BLOCKING (~0.3-0.7s of delay()); leaves the bars lit
     void endBootSequence();             // hand off to IDLE breathing
 
-    // ---- runtime-tunable settings (each also has a getter for DebugConsole's help output) ----
-    void setIdleColor(uint8_t r, uint8_t g, uint8_t b);
-    void setFireColor(uint8_t r, uint8_t g, uint8_t b);
+    // ---- status indicator (2 LEDs on PIN_STATUS_LED) ----
+    // profileIndex: 0 = stock (left/right alternating), 1..3 = AltMode1..3
+    // (left / right / both). Blinks green until releaseModeIndicator().
+    void showModeIndicator(uint8_t profileIndex);
+    // Back to mirroring the vents - but not before the pattern has been shown
+    // for STATUS_MODE_MIN_SHOW_MS, so a fast load is still readable.
+    // usedRootSounds: the alt mode borrowed stock WAVs from the card root -
+    // the same pattern switches to turquoise and gets a full
+    // STATUS_MODE_MIN_SHOW_MS of its own before releasing.
+    void releaseModeIndicator(bool usedRootSounds = false);
+    // Bright red flashes on both LEDs, then back to mirroring the vents.
+    void showFaultIndicator();
+
+    // ---- runtime-tunable settings ----
+    void resetToDefaults(); // everything below back to the Config.h stock values
+
+    void setColor(ColorSlot slot, uint8_t r, uint8_t g, uint8_t b);
+    void setColorRainbow(ColorSlot slot);
+    SlotColor getColor(ColorSlot slot) const;
+
     void setFireWipeSeconds(float seconds);
     void setIdleBreatheSeconds(float seconds);
     void setIdleMinBrightness(float fraction0to1);
     void setIdleMaxBrightness(float fraction0to1);
-
-    // Vent strips: single color, no hue change ever - only intensity moves.
-    void setVentColor(uint8_t r, uint8_t g, uint8_t b);
-    void getVentColor(uint8_t& r, uint8_t& g, uint8_t& b) const { r = _ventR; g = _ventG; b = _ventB; }
     void setVentMaxBrightness(float fraction0to1);
     float getVentMaxBrightness() const { return _ventMaxBrightness; }
 
     // Individual kachunk timestamp (index 0-4 -> kachunk 1-5), seconds from
     // the start of cooldown.wav. Must stay strictly ascending - callers
-    // (DebugConsole) are expected to validate against neighbors before
+    // (SettingsController) are expected to validate against neighbors before
     // calling this.
     void setKachunkTimestamp(uint8_t index, float seconds);
     float getKachunkTimestamp(uint8_t index) const;
@@ -114,51 +148,54 @@ public:
     void setKachunkTailSeconds(float seconds);
     float getKachunkTailSeconds() const { return _kachunkTailSec; }
 
+    void setRainbowSpeed(float wheelPositionsPerSecond);
+    float getRainbowSpeed() const { return _rainbowSpeed; }
+    void setRainbowBrightness(float fraction0to1);
+    float getRainbowBrightness() const { return _rainbowBrightness; }
+
     // True for exactly one update() call, the moment the cooldown sequence's
     // last needed kachunk + tail has elapsed - the main sketch uses this to
     // know when to cut cooldown.wav and start idle.wav again.
     bool cooldownWipeComplete() const { return _cooldownWipeJustCompleted; }
 
-    // ---- rainbow mode: a full-strip color-wheel chase that overrides the
-    // normal idle/firing/cooldown rendering entirely while enabled. Purely a
-    // visual override - the trigger state machine (motor/audio/fog) keeps
-    // running normally underneath it. ----
-    void setRainbowMode(bool enabled);
-    bool isRainbowMode() const { return _rainbowMode; }
-    void setRainbowSpeed(float wheelPositionsPerSecond);
-    float getRainbowSpeed() const { return _rainbowSpeed; }
-
-    void getIdleColor(uint8_t& r, uint8_t& g, uint8_t& b) const { r = _idleR; g = _idleG; b = _idleB; }
-    void getFireColor(uint8_t& r, uint8_t& g, uint8_t& b) const { r = _fireR; g = _fireG; b = _fireB; }
     float getFireWipeSeconds()     const { return _fireWipeSeconds; }
     float getIdleBreatheSeconds()  const { return (float)_idleBreathePeriodMs / 1000.0f; }
     float getIdleMinBrightness()   const { return _idleMinBrightness; }
     float getIdleMaxBrightness()   const { return _idleMaxBrightness; }
 
 private:
+    enum class StatusMode { FOLLOW_VENTS, MODE_PATTERN, FAULT };
+
     void renderBoot();
     void renderIdle();
     void renderFiring();
     void renderCooldownWipe();
     void renderCooldownFade();
-    void renderRainbow();
+    void renderStatus();
 
-    void setSetColor(uint8_t setIndex, uint8_t r, uint8_t g, uint8_t b, float brightness);
-    void setVentStrips(uint8_t r, uint8_t g, uint8_t b, float brightness);
+    // Barrel: per ring, blend the idle slot (at idleHexBrightness) toward the
+    // fire slot (at fireHexBrightness) by mix[ring]. Rainbow slots ignore the
+    // hex brightness and use rainbowBrightness.
+    void renderBarrel(const float* mix, float idleHexBrightness, float fireHexBrightness);
+    void renderVents(const SlotColor& c, float hexBrightness);
+    void slotPixel(const SlotColor& c, uint16_t i, uint16_t count, float hexBrightness,
+                   uint8_t& r, uint8_t& g, uint8_t& b) const;
+    void setStatusPixels(uint32_t left, uint32_t right);
+
     static float segmentProgress(uint8_t index, uint8_t count, float overallProgress);
     static uint8_t lerp8(uint8_t a, uint8_t b, float t);
-    uint32_t colorWheel(uint8_t wheelPos) const; // classic 0-255 RGB color wheel
+    static void wheelRGB(uint8_t wheelPos, uint8_t& r, uint8_t& g, uint8_t& b); // classic 0-255 color wheel
 
     Adafruit_NeoPixel _strip;
     Adafruit_NeoPixel _ventLeft;
     Adafruit_NeoPixel _ventRight;
+    Adafruit_NeoPixel _status;
 
     LEDState _state = LEDState::IDLE;
     unsigned long _stateStartMs = 0;
 
-    bool _rainbowMode = false;
-    float _rainbowSpeed;         // wheel positions/sec
-    unsigned long _rainbowStartMs = 0;
+    // Rainbow chase position for the current frame (0..256), computed once per update().
+    float _rainbowBase = 0.0f;
 
     // Per-set idle->fire mix, 0.0 = fully idle color, 1.0 = fully fire color.
     // Written during FIRING, read/mutated as COOLDOWN_WIPE hard-switches
@@ -174,16 +211,22 @@ private:
     // _state == LEDState::BOOT.
     float _bootRingProgress[LED_NUM_SETS] = {0};
 
-    // ---- runtime settings, seeded from Config.h defaults in the constructor ----
-    uint8_t _idleR, _idleG, _idleB;
-    uint8_t _fireR, _fireG, _fireB;
+    // ---- status indicator ----
+    StatusMode    _statusMode = StatusMode::FOLLOW_VENTS;
+    uint8_t       _statusProfile = 0;
+    bool          _statusFallback = false; // turquoise instead of green
+    unsigned long _statusStartMs = 0;
+    unsigned long _statusReleaseAtMs = 0; // 0 = hold until released
+
+    // ---- runtime settings (see resetToDefaults()) ----
+    SlotColor _colors[(uint8_t)ColorSlot::COUNT];
     float    _fireWipeSeconds;
     uint32_t _idleBreathePeriodMs;
     float    _idleMinBrightness;
     float    _idleMaxBrightness;
     float    _kachunkTimestampSec[5];
     float    _kachunkTailSec;
-
-    uint8_t _ventR, _ventG, _ventB;
-    float   _ventMaxBrightness;
+    float    _ventMaxBrightness;
+    float    _rainbowSpeed;      // wheel positions/sec
+    float    _rainbowBrightness; // 0..1, fixed (rainbow never breathes)
 };

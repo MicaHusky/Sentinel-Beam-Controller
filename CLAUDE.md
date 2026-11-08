@@ -25,10 +25,13 @@ frequently didn't work as given.
 
 - **GPIO assignments** (see README's pinout table) - many were chosen
   specifically to avoid the OPI PSRAM range, USB D-/D+, and strapping pins.
-- **SD card is read exactly once, at boot, before anything else runs.**
-  All three WAV files get copied into PSRAM, then the SD card is never
-  touched again for the rest of runtime. This is deliberate - not an
-  oversight to "optimize away."
+- **SD card is read at boot, and otherwise ONLY on an explicit mode switch.**
+  At boot the three stock WAVs are copied into PSRAM and the card is
+  unmounted. Playback always reads PSRAM, never the card. Since v1.4.0 (user-
+  approved) a mode-button switch re-mounts the card - only ever while the
+  beam is IDLE (requests during firing/cooldown are queued) - frees the old
+  PSRAM buffers, loads the new set, and unmounts again. Don't add any other
+  SD access (streaming, lazy loading) without discussion.
 - **The stepper's EN pin auto-disables at rest.** This is a physical safety
   requirement, not a power-saving nicety (though it's also that): the
   barrel is a foot-long, ~100mm diameter exposed 3D-printed rotating part.
@@ -74,9 +77,11 @@ frequently didn't work as given.
 - **The barrel's idle color is the orangish one (`DF5709`), fire color is
   purplish (`6470E2`)** - this was deliberately swapped from an earlier,
   more intuitive-seeming assignment. Don't "fix" this back.
-- **The two vent LED strips never change hue** - only brightness - between
-  idle and firing. This was explicit and specific; don't add a color wipe
-  to them to match the barrel's behavior.
+- **In stock, the two vent LED strips never change hue** - only brightness -
+  between idle and firing. Since v1.4.0 there's a `ventFireColor` slot so an
+  *alt mode* can opt into a firing hue, but its stock default equals
+  `ventColor`. Don't change that default, and don't add a ring-style wipe to
+  the vents.
 - **Boot progress bar (v1.2.0):** during `setup()` the 5 barrel rings each act
   as an independent 17-LED loading bar for one boot phase - ring 0 = subsystem
   inits (LED/trigger/fog/motor/SD mount), rings 1-3 = the `idle`/`fire`/
@@ -86,19 +91,33 @@ frequently didn't work as given.
   hard fail the bars freeze where they stalled (diagnostic), then the barrel
   flashes the result code: green x1 = OK, red x2 = hard fail. Yellow x2
   (`BootResult::RECOVERABLE`) is wired but unreachable until the `config.txt`
-  / audio-optional path below exists. `ledManager.begin()` runs first in
-  `setup()` now so the bar is live for the rest of boot. The boot visuals are
+  / audio-optional path below exists. The OK green flash is held 500 ms
+  (`LED_BOOT_OK_FLASH_ON_MS`); the status indicator mirrors all result
+  flashes. `ledManager.begin()` runs first in `setup()` now so the bar is
+  live for the rest of boot. The boot visuals are
   boot-time-only `Config.h` constants with no console setter, on purpose (the
   console isn't up yet and there's no persistence).
-- **The GPIO1 mode button cycles LED modes** (`Normal` -> `Rainbow` -> ...,
-  wrapping). `ModeManager` owns the button and is the *single source of truth*
-  for the current mode - the debug console's `ledMode=` command routes through
-  it too, so the two can't disagree. `ModeManager` follows the
-  independent-manager rule (it never calls `LEDManager`); the main loop polls
-  `mode()` and calls `applyMode()` in `SentinelBeam.ino` to act on a change.
-  Adding a mode = a value in `LEDMode`, a `modeName()` case, an `applyMode()`
-  case. The button debounce is a deliberate copy of `TriggerManager`'s rather
-  than a shared helper, to keep the hardware-validated trigger path untouched.
+- **The GPIO1 mode button loads SD-card profiles (v1.4.0).** Single/double/
+  triple press -> `/AltMode1-3/` (own WAVs + `mode.txt`), long press -> stock
+  ("as if just booted": root WAVs + every setting back to `Config.h`).
+  `ModeManager` owns gesture detection and the current/pending profile; the
+  main sketch's `loadProfile()` does the actual switch (managers still never
+  call each other). `mode.txt` lines go through `SettingsController::apply()`
+  so it accepts exactly the console's keys - add a new tunable there and it
+  works in both. Every alt mode starts from stock. Each of the folder's four
+  files is optional: a missing WAV borrows the root (stock) one - status
+  indicator turquoise instead of green - and a missing `mode.txt` = stock
+  settings (user's call, so a mode can be "stock + a few tweaks"). A folder
+  with none of the four, or a `mode.txt` with a bad line, is rejected as a
+  whole (red flash, revert to stock). The button debounce is a deliberate
+  copy of `TriggerManager`'s.
+- **Status indicator (GPIO39, 2 LEDs)** mirrors the vents except while
+  showing a mode-switch pattern (green: L = Alt1, R = Alt2, both = Alt3,
+  alternating = stock; turquoise = same, but borrowing root WAVs) or a fault
+  (red). User-specified; keep it mirroring the vents otherwise.
+- **`rainbow` is a per-color value**, not a global mode. It never breathes
+  (fixed `rainbowBrightness`, user's call), and a rainbow `fireColor` erupts
+  over the whole barrel at once instead of wiping ring by ring.
 - A WiFi captive-portal control page was built, then explicitly removed
   (reverted to WiFi-less) because there was no persistence layer for its
   changes yet. `SettingsController` was kept because the Serial console

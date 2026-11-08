@@ -6,7 +6,9 @@ void SettingsController::begin(LEDManager* led, AudioManager* audio, ModeManager
     _mode = mode;
 }
 
-bool SettingsController::parseHexColor(const String& hex, uint8_t& r, uint8_t& g, uint8_t& b) {
+bool SettingsController::parseHexColor(const String& hexIn, uint8_t& r, uint8_t& g, uint8_t& b) {
+    String hex = hexIn;
+    if (hex.startsWith("#")) hex = hex.substring(1);
     if (hex.length() != 6) return false;
 
     for (uint8_t i = 0; i < 6; i++) {
@@ -22,38 +24,76 @@ bool SettingsController::parseHexColor(const String& hex, uint8_t& r, uint8_t& g
     return true;
 }
 
-SettingResult SettingsController::apply(const String& keyIn, const String& valueIn) {
+float SettingsController::parsePercent(String value) {
+    value.trim();
+    if (value.endsWith("%")) value.remove(value.length() - 1);
+    value.trim();
+    if (!isNumber(value)) return -1.0f; // fails every 0-100 range check
+    return value.toFloat();
+}
+
+// Strict-ish numeric check, so a typo in a mode.txt ("fast", "1.2.3") is
+// reported instead of silently becoming 0 via toFloat().
+bool SettingsController::isNumber(const String& value) {
+    if (value.length() == 0) return false;
+    bool digit = false, dot = false;
+    for (unsigned i = 0; i < value.length(); i++) {
+        char c = value[i];
+        if (c >= '0' && c <= '9') { digit = true; continue; }
+        if (c == '.' && !dot)     { dot = true; continue; }
+        if ((c == '-' || c == '+') && i == 0) continue;
+        return false;
+    }
+    return digit;
+}
+
+SettingResult SettingsController::applyColor(ColorSlot slot, const char* keyName, const String& value) {
+    if (value.equalsIgnoreCase("rainbow")) {
+        if (_led) _led->setColorRainbow(slot);
+        return {true, String(keyName) + " has been changed to rainbow"};
+    }
+    uint8_t r, g, b;
+    if (!parseHexColor(value, r, g, b)) {
+        return {false, String("ERROR: ") + keyName + " expects 6 hex digits (e.g. " + keyName +
+                       "=0055FF) or the word rainbow"};
+    }
+    if (_led) _led->setColor(slot, r, g, b);
+    return {true, String(keyName) + " has been changed to " + value};
+}
+
+SettingResult SettingsController::apply(const String& keyIn, const String& valueIn, bool fromModeFile) {
     String key = keyIn;
     String value = valueIn;
     key.trim();
     value.trim();
 
+    // Numeric keys: reject non-numbers up front, so a typo is reported rather
+    // than silently becoming 0 via toFloat(). (Colors, kachunkTimestamps, and
+    // mode have their own parsing below; percent keys go through parsePercent.)
+    const bool numericKey =
+        key.equalsIgnoreCase("fireWipeSeconds") || key.equalsIgnoreCase("kachunkTail") ||
+        key.equalsIgnoreCase("idleBreatheSeconds") || key.equalsIgnoreCase("audioGain") ||
+        key.equalsIgnoreCase("rainbowSpeed") || key.equalsIgnoreCase("longPressMs") ||
+        key.equalsIgnoreCase("multiPressGapMs") ||
+        (key.length() == 8 && key.substring(0, 7).equalsIgnoreCase("kachunk"));
+    if (numericKey && !isNumber(value)) {
+        return {false, "ERROR: " + key + " expects a number, got '" + value + "'."};
+    }
+
     if (key.equalsIgnoreCase("idleColor")) {
-        uint8_t r, g, b;
-        if (!parseHexColor(value, r, g, b)) {
-            return {false, "ERROR: idleColor expects 6 hex digits, e.g. idleColor=33B5E5"};
-        }
-        if (_led) _led->setIdleColor(r, g, b);
-        return {true, "Idle color has been changed to " + value};
+        return applyColor(ColorSlot::IDLE, "idleColor", value);
 
     } else if (key.equalsIgnoreCase("fireColor")) {
-        uint8_t r, g, b;
-        if (!parseHexColor(value, r, g, b)) {
-            return {false, "ERROR: fireColor expects 6 hex digits, e.g. fireColor=FF6400"};
-        }
-        if (_led) _led->setFireColor(r, g, b);
-        return {true, "Fire color has been changed to " + value};
+        return applyColor(ColorSlot::FIRE, "fireColor", value);
 
     } else if (key.equalsIgnoreCase("ventColor")) {
-        uint8_t r, g, b;
-        if (!parseHexColor(value, r, g, b)) {
-            return {false, "ERROR: ventColor expects 6 hex digits, e.g. ventColor=E8A020"};
-        }
-        if (_led) _led->setVentColor(r, g, b);
-        return {true, "Vent color has been changed to " + value};
+        return applyColor(ColorSlot::VENT, "ventColor", value);
+
+    } else if (key.equalsIgnoreCase("ventFireColor")) {
+        return applyColor(ColorSlot::VENT_FIRE, "ventFireColor", value);
 
     } else if (key.equalsIgnoreCase("ventMaxBrightness")) {
-        float percent = value.toFloat();
+        float percent = parsePercent(value);
         if (percent < 0.0f || percent > 100.0f) {
             return {false, "ERROR: ventMaxBrightness must be 0-100 (percent)."};
         }
@@ -77,6 +117,9 @@ SettingResult SettingsController::apply(const String& keyIn, const String& value
             String token = (comma < 0) ? value.substring(start) : value.substring(start, comma);
             token.trim();
             if (token.length() == 0) break;
+            if (!isNumber(token)) {
+                return {false, "ERROR: kachunkTimestamps has a non-numeric value '" + token + "'."};
+            }
             parsed[count] = token.toFloat();
             count++;
             if (comma < 0) break;
@@ -133,7 +176,7 @@ SettingResult SettingsController::apply(const String& keyIn, const String& value
         return {true, "Idle breathe period has been changed to " + String(seconds, 2) + " seconds"};
 
     } else if (key.equalsIgnoreCase("idleMinBrightness")) {
-        float percent = value.toFloat();
+        float percent = parsePercent(value);
         if (percent < 0.0f || percent > 100.0f) {
             return {false, "ERROR: idleMinBrightness must be 0-100 (percent)."};
         }
@@ -141,7 +184,7 @@ SettingResult SettingsController::apply(const String& keyIn, const String& value
         return {true, "Idle minimum brightness has been changed to " + String(percent, 0) + "%"};
 
     } else if (key.equalsIgnoreCase("idleMaxBrightness")) {
-        float percent = value.toFloat();
+        float percent = parsePercent(value);
         if (percent < 0.0f || percent > 100.0f) {
             return {false, "ERROR: idleMaxBrightness must be 0-100 (percent)."};
         }
@@ -156,18 +199,44 @@ SettingResult SettingsController::apply(const String& keyIn, const String& value
         if (_audio) _audio->setGain(gain);
         return {true, "Audio gain has been changed to " + String(gain, 2)};
 
-    } else if (key.equalsIgnoreCase("ledMode")) {
-        // Routed through ModeManager (the single source of truth), so this and
-        // the physical GPIO1 mode button stay in agreement. The main loop
-        // applies the change to the LEDs on its next pass.
-        if (value.equalsIgnoreCase("rainbow")) {
-            if (_mode) _mode->setMode(MODE_RAINBOW);
-            return {true, "LED mode has been changed to rainbow"};
-        } else if (value.equalsIgnoreCase("normal")) {
-            if (_mode) _mode->setMode(MODE_NORMAL);
-            return {true, "LED mode has been changed to normal"};
+    } else if (key.equalsIgnoreCase("mode")) {
+        // Routed through ModeManager exactly like the GPIO1 button: queued if
+        // the beam is firing/cooling down, applied by the main loop once IDLE.
+        if (fromModeFile) {
+            return {false, "ERROR: mode= can't be used inside a mode.txt."};
         }
-        return {false, "ERROR: ledMode expects 'normal' or 'rainbow'."};
+        ModeProfile p;
+        if (value.equalsIgnoreCase("stock") || value == "0") p = PROFILE_STOCK;
+        else if (value == "1" || value.equalsIgnoreCase("alt1") || value.equalsIgnoreCase("AltMode1")) p = PROFILE_ALT1;
+        else if (value == "2" || value.equalsIgnoreCase("alt2") || value.equalsIgnoreCase("AltMode2")) p = PROFILE_ALT2;
+        else if (value == "3" || value.equalsIgnoreCase("alt3") || value.equalsIgnoreCase("AltMode3")) p = PROFILE_ALT3;
+        else return {false, "ERROR: mode expects stock, 1, 2, or 3."};
+        if (_mode) _mode->requestProfile(p, "console");
+        return {true, String("Mode switch to ") + profileName(p) + " requested"};
+
+    } else if (key.equalsIgnoreCase("rainbowBrightness")) {
+        float percent = parsePercent(value);
+        if (percent < 0.0f || percent > 100.0f) {
+            return {false, "ERROR: rainbowBrightness must be 0-100 (percent)."};
+        }
+        if (_led) _led->setRainbowBrightness(percent / 100.0f);
+        return {true, "Rainbow brightness has been changed to " + String(percent, 0) + "%"};
+
+    } else if (key.equalsIgnoreCase("longPressMs")) {
+        long ms = value.toInt();
+        if (ms < 300 || ms > 5000) {
+            return {false, "ERROR: longPressMs must be 300-5000."};
+        }
+        if (_mode) _mode->setLongPressMs((uint16_t)ms);
+        return {true, "Mode button long-press time has been changed to " + String(ms) + " ms"};
+
+    } else if (key.equalsIgnoreCase("multiPressGapMs")) {
+        long ms = value.toInt();
+        if (ms < 100 || ms > 2000) {
+            return {false, "ERROR: multiPressGapMs must be 100-2000."};
+        }
+        if (_mode) _mode->setMultiPressGapMs((uint16_t)ms);
+        return {true, "Mode button multi-press gap has been changed to " + String(ms) + " ms"};
 
     } else if (key.equalsIgnoreCase("rainbowSpeed")) {
         float speed = value.toFloat();

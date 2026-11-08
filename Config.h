@@ -10,7 +10,7 @@
 // Bump this alongside CHANGELOG.md whenever a build is worth calling a
 // version - printed over Serial at boot so a flashed board always tells you
 // exactly what firmware it's running.
-constexpr const char* FIRMWARE_VERSION = "1.3.3";
+constexpr const char* FIRMWARE_VERSION = "1.4.0";
 
 // ---------- Trigger ----------
 constexpr uint8_t  PIN_TRIGGER          = 4;   // INPUT_PULLUP, switch pulls to GND
@@ -18,14 +18,33 @@ constexpr uint16_t TRIGGER_DEBOUNCE_MS  = 20;
 
 // ---------- Mode button ----------
 // Second momentary button, wired exactly like the trigger (INPUT_PULLUP,
-// switch shorts the pin to GND, so LOW = pressed). Each debounced press
-// advances the LED mode one step and wraps around: Normal -> Rainbow -> ...
-// -> Normal. GPIO1 is clear of the strapping pins (0/3/45/46), USB D-/D+
-// (19/20), and the OPI PSRAM range.
+// switch shorts the pin to GND, so LOW = pressed). GPIO1 is clear of the
+// strapping pins (0/3/45/46), USB D-/D+ (19/20), and the OPI PSRAM range.
+// Gestures (see ModeManager):
+//   single / double / triple press -> load /AltMode1 / /AltMode2 / /AltMode3
+//   long press (held)              -> revert to stock, as if freshly booted
+// A press made while firing or cooling down is queued and applied the moment
+// the beam is back at IDLE. Both timings below are boot defaults - the debug
+// console's longPressMs= / multiPressGapMs= tune them live.
 constexpr uint8_t  PIN_MODE_BUTTON         = 1;
 constexpr uint16_t MODE_BUTTON_DEBOUNCE_MS = 20;
+constexpr uint16_t MODE_LONG_PRESS_MS      = 1000; // held this long -> stock (fires while still held)
+constexpr uint16_t MODE_MULTI_PRESS_GAP_MS = 350;  // max gap between taps of one double/triple press
 
-// ---------- microSD (boot-time only, then fully shut down) ----------
+// ---------- Alt modes (per-mode sound + settings folders on the SD card) ----------
+// Each alt mode is a folder at the card root holding its own idle.wav /
+// fire.wav / cooldown.wav plus a human-readable MODE_CONFIG_FILENAME of
+// key=value lines (same keys as the debug console). Stock = the WAVs at the
+// card root + the Config.h defaults below. Any of an alt mode's files may be
+// left out: a missing WAV borrows the stock one from the card root (status
+// indicator shows turquoise instead of green), a missing mode.txt means stock
+// settings. If ALL FOUR are missing, or mode.txt has a bad line, the mode is
+// rejected: the status LEDs flash red and the prop reverts to stock.
+constexpr const char* ALT_MODE_DIR_PREFIX   = "/AltMode";  // + "1".."3"
+constexpr const char* MODE_CONFIG_FILENAME  = "mode.txt";
+constexpr size_t      MODE_CONFIG_MAX_BYTES = 8192;        // sanity cap on mode.txt size
+
+// ---------- microSD (read at boot + on an explicit mode switch, idle otherwise) ----------
 constexpr uint8_t  PIN_SD_CS   = 10;
 constexpr uint8_t  PIN_SD_SCK  = 5;
 constexpr uint8_t  PIN_SD_MISO = 6;
@@ -84,7 +103,13 @@ constexpr float LED_FIRE_BRIGHTNESS     = 1.0f;
 constexpr uint8_t LED_COLOR_IDLE_DEFAULT_R = 0xDF, LED_COLOR_IDLE_DEFAULT_G = 0x57, LED_COLOR_IDLE_DEFAULT_B = 0x09;
 constexpr uint8_t LED_COLOR_FIRE_DEFAULT_R = 0x64, LED_COLOR_FIRE_DEFAULT_G = 0x70, LED_COLOR_FIRE_DEFAULT_B = 0xE2;
 
-constexpr float LED_RAINBOW_SPEED_DEFAULT = 40.0f; // color-wheel positions/sec the chase advances by
+// Any color setting (idleColor / fireColor / ventColor / ventFireColor) can be
+// the word "rainbow" instead of a hex code: that slot then renders the
+// color-wheel chase. Rainbow never breathes - it holds rainbowBrightness in
+// every state. A rainbow fireColor switches the whole barrel at once on the
+// trigger pull rather than doing the ring-by-ring wipe.
+constexpr float LED_RAINBOW_SPEED_DEFAULT      = 40.0f; // color-wheel positions/sec the chase advances by
+constexpr float LED_RAINBOW_BRIGHTNESS_DEFAULT = 1.0f;  // fixed brightness of any rainbow slot, 0..1
 
 // ---------- Boot progress bar (barrel rings as a 5-phase loading indicator) ----------
 // During setup() the 5 barrel rings each act as an INDEPENDENT 17-LED loading
@@ -108,21 +133,47 @@ constexpr uint8_t LED_COLOR_BOOT_OK_R   = 0x00, LED_COLOR_BOOT_OK_G   = 0xC8, LE
 constexpr uint8_t LED_COLOR_BOOT_WARN_R = 0xE0, LED_COLOR_BOOT_WARN_G = 0xA0, LED_COLOR_BOOT_WARN_B = 0x00; // yellow x2
 constexpr uint8_t LED_COLOR_BOOT_FAIL_R = 0xC8, LED_COLOR_BOOT_FAIL_G = 0x00, LED_COLOR_BOOT_FAIL_B = 0x00; // red x2
 constexpr float    LED_BOOT_BRIGHTNESS   = 0.50f; // fixed for the whole sequence, fill and result flash alike
-constexpr uint16_t LED_BOOT_FLASH_ON_MS  = 160;   // result-code per-flash on time
+constexpr uint16_t LED_BOOT_FLASH_ON_MS  = 160;   // result-code per-flash on time (yellow / red)
+constexpr uint16_t LED_BOOT_OK_FLASH_ON_MS = 500; // the single green "all clear" flash is held longer
 constexpr uint16_t LED_BOOT_FLASH_OFF_MS = 160;   // gap between flashes / before the idle handoff
 
 // ---------- Vent LEDs (2 strips, cooling vents on either side of the grip) ----------
-// Purely single-color/single-brightness accent lighting - no wipe or kachunk
-// animation like the barrel. Idle: breathes in sync with the barrel's idle
-// breathing, just capped at its own (lower-key) peak brightness. Firing:
-// jumps to full brightness, same color - only intensity changes, never hue.
-// Rainbow mode overrides both of these exactly like it does the barrel.
+// Simple accent lighting - no wipe or kachunk animation like the barrel.
+// Idle: ventColor, breathing in sync with the barrel's idle breathing, just
+// capped at its own (lower-key) peak brightness. Firing + kachunk cooldown:
+// ventFireColor at full brightness, then back to ventColor for the fade.
+// ventFireColor defaults to the same value as ventColor, so stock vents only
+// ever change intensity, never hue - an alt mode can set it differently.
 constexpr uint8_t  PIN_VENT_LEFT   = 41; // one side of the cooling vents (LED strip #2 on the PCB)
 constexpr uint8_t  PIN_VENT_RIGHT  = 40; // other side of the cooling vents (LED strip #3 on the PCB)
 constexpr uint16_t VENT_LED_COUNT  = 80; // 8 groups of 10 LEDs per side
 
-constexpr uint8_t LED_COLOR_VENT_DEFAULT_R = 0xE8, LED_COLOR_VENT_DEFAULT_G = 0xA0, LED_COLOR_VENT_DEFAULT_B = 0x20; // slightly orangey-yellow
+constexpr uint8_t LED_COLOR_VENT_DEFAULT_R = 0x00, LED_COLOR_VENT_DEFAULT_G = 0x55, LED_COLOR_VENT_DEFAULT_B = 0xFF; // blue (#0055FF); also the stock ventFireColor
 constexpr float   LED_VENT_MAX_BRIGHTNESS  = 0.25f; // peak of the idle breathe range (shares the barrel's min)
+
+// ---------- Status indicator (2 WS2812s, same type as the vents) ----------
+// Normally just mirrors the vent strips. While a mode switch is pending/
+// loading it blacks out and blinks green in the target mode's pattern:
+//   AltMode1 = left LED, AltMode2 = right LED, AltMode3 = both,
+//   stock    = left/right alternating.
+// If the alt mode had to borrow any stock WAVs from the card root, the same
+// pattern turns turquoise once loaded. It holds the pattern for at least
+// STATUS_MODE_MIN_SHOW_MS (so a fast load is still readable), then returns to
+// mirroring the vents. A rejected alt
+// mode flashes both LEDs bright red STATUS_FAULT_FLASHES times instead. It
+// also mirrors the barrel's boot result flash. GPIO39 is clear of the
+// strapping pins, USB D-/D+, and the OPI PSRAM range.
+constexpr uint8_t  PIN_STATUS_LED    = 39;
+constexpr uint16_t STATUS_LED_COUNT  = 2;   // index 0 = left, 1 = right
+constexpr uint8_t  LED_COLOR_STATUS_MODE_R  = 0x00, LED_COLOR_STATUS_MODE_G  = 0xFF, LED_COLOR_STATUS_MODE_B  = 0x00; // green
+constexpr uint8_t  LED_COLOR_STATUS_FALLBACK_R = 0x00, LED_COLOR_STATUS_FALLBACK_G = 0xE0, LED_COLOR_STATUS_FALLBACK_B = 0xC0; // turquoise
+constexpr uint8_t  LED_COLOR_STATUS_FAULT_R = 0xFF, LED_COLOR_STATUS_FAULT_G = 0x00, LED_COLOR_STATUS_FAULT_B = 0x00; // red
+constexpr float    STATUS_MODE_BRIGHTNESS   = 0.60f;
+constexpr float    STATUS_FAULT_BRIGHTNESS  = 1.00f; // "bright red"
+constexpr uint16_t STATUS_BLINK_ON_MS       = 250;
+constexpr uint16_t STATUS_BLINK_OFF_MS      = 250;
+constexpr uint16_t STATUS_MODE_MIN_SHOW_MS  = 1500;
+constexpr uint8_t  STATUS_FAULT_FLASHES     = 4;
 
 // ---------- Fogger (MOSFET-switched, digital on/off only) ----------
 constexpr uint8_t PIN_FOG = 9; // active HIGH into MOSFET gate

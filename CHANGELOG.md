@@ -3,7 +3,83 @@
 ## [Unreleased]
 Nothing yet.
 
-## [1.3.3] - current
+## [1.4.0] - current
+The GPIO1 mode button now switches between stock and up to three SD-card
+"alt modes", each with its own sounds and lighting. Vents default to blue.
+
+### Added
+- **Alt modes on the SD card.** `/AltMode1/`, `/AltMode2/`, `/AltMode3/` each
+  hold their own `idle.wav` / `fire.wav` / `cooldown.wav` plus a
+  human-readable `mode.txt` of `key=value` lines. This lets you swap a
+  convention's worth of looks and sounds by swapping SD cards, with no IDE or
+  USB needed in the field. `mode.txt` accepts every debug-console key except
+  `mode=`, fed line by line through `SettingsController::apply()`, so there is
+  still one set of validation rules. That includes `kachunkTimestamps` and
+  `audioGain`, because a different `cooldown.wav` has its beats in different
+  places and different sound sets vary in loudness. Every mode starts from
+  stock and applies its file on top; omitted keys stay stock.
+- **Per-file fallback to stock sounds.** Every file in an AltMode folder is
+  optional: a missing WAV borrows the stock one from the card root, and a
+  missing `mode.txt` means stock settings. A folder with just a `mode.txt` is
+  therefore "stock sounds, different look/volume". When any root WAV is
+  borrowed, the status indicator shows the mode's pattern in **turquoise**
+  instead of green (held a full 1.5 s). A folder with *none* of the four files
+  (missing, empty, misnamed) is still rejected - almost certainly a mistake.
+  Template: `sd-card-template/mode.txt`.
+- **Mode button gestures** (`ModeManager`): single / double / triple press ->
+  AltMode1 / 2 / 3; long press (~1 s, fires while still held) -> stock (root
+  WAVs + `Config.h` defaults, "as if just booted"). Taps up to 350 ms apart
+  count as one gesture, so a single press acts 350 ms after release. 4+ taps
+  are ignored. Both timings are tunable (`longPressMs=`, `multiPressGapMs=`).
+  A press during FIRING/COOLDOWN is queued and applied once the beam is back
+  at IDLE, so firing is never interrupted; a newer press replaces a queued
+  one. Re-selecting the current mode reloads it (useful after a card swap).
+- **Status indicator on GPIO39** (2 WS2812s). Normally mirrors the vents. On a
+  mode request it blacks out and blinks green in the target's pattern: left =
+  AltMode1, right = AltMode2, both = AltMode3, left/right alternating = stock.
+  It holds the pattern at least 1.5 s, then goes back to following the vents.
+  It also mirrors the boot result flash.
+- **Rejected modes.** If an alt mode is unusable (folder missing/empty, a bad
+  line in `mode.txt`, PSRAM load failure), the indicator flashes bright red
+  x4, the prop reverts to stock, and the reason (file + line number) is
+  logged. `mode.txt` is validated *before* the current sounds are freed.
+- **`rainbow` as a color value** for `idleColor`, `fireColor`, `ventColor`,
+  `ventFireColor` (console or `mode.txt`). Rainbow holds a fixed
+  `rainbowBrightness` (new setting, 0-100%) and never breathes. A rainbow
+  `fireColor` skips the ring-by-ring wipe: the whole barrel erupts at once on
+  the trigger pull, then reverts ring by ring on the kachunks as usual.
+- **`ventFireColor`**: vent color while firing and through the kachunk wipe.
+  Defaults to `ventColor`, so stock vents still only change intensity; an alt
+  mode can now give the vents a firing hue.
+- Console `mode=stock|1|2|3` - same path as the button.
+- Hex colors may have a leading `#`; percent values may have a trailing `%`;
+  non-numeric values for numeric keys are now rejected instead of silently
+  becoming 0 (matters for typos in a `mode.txt`).
+
+### Changed
+- **Default vent color is now `#0055FF`** (was `E8A020`).
+- **The SD card is no longer boot-only.** It is still read once at boot and
+  then left idle, and is never read during playback; but an explicit mode
+  switch (only ever while IDLE) now re-mounts it, frees the three PSRAM
+  buffers, loads the new set, and unmounts again. `AudioManager` gained
+  `mountSD()` / `unmountSD()` / `fileExists()` / `readTextFile()` /
+  `loadSoundSet()`; the SPI bus object is now a member so the card can be
+  re-mounted.
+- **Boot "all clear" green flash held 500 ms** (was 160 ms) -
+  `LED_BOOT_OK_FLASH_ON_MS`. Yellow/red flashes unchanged.
+- `LEDManager` colors are now four slots (`ColorSlot::IDLE/FIRE/VENT/
+  VENT_FIRE`) via `setColor()` / `setColorRainbow()` / `getColor()`, replacing
+  the per-color setters. New `resetToDefaults()` on `LEDManager` and
+  `ModeManager` back the long-press "stock" reset.
+- Debug console `help` drops the stale WiFi/web-page lines (that portal was
+  removed earlier) and lists the new keys plus the current mode.
+
+### Removed
+- The old `Normal` -> `Rainbow` button cycle, `LEDMode`, `applyMode()`,
+  `LEDManager::setRainbowMode()`, and the console's `ledMode=`. Rainbow is now
+  a per-color value instead of a global override.
+
+## [1.3.3]
 ### Added
 - README "Troubleshooting" section (plus a pointer in `CLAUDE.md`): if the
   barrel won't spin up to full RPM *and* the speaker seems dead at the same

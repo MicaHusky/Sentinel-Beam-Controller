@@ -3,15 +3,25 @@
 #include <AudioFileSourcePROGMEM.h>
 #include <AudioGeneratorWAV.h>
 #include <AudioOutputI2S.h>
+#include <SPI.h>
 #include "Config.h"
 
 // =============================================================================
 // AudioManager
 //
-// At begin(): mounts the SD card ONE TIME, copies idle.wav, fire.wav, and
-// cooldown.wav entirely into PSRAM, then fully shuts the SD card down. From
-// that point on the SD card is never touched again - all playback reads out
-// of PSRAM.
+// At begin(): mounts the SD card, copies the stock idle.wav, fire.wav, and
+// cooldown.wav (card root) entirely into PSRAM, then fully shuts the SD card
+// down. All playback reads out of PSRAM - the card is NEVER read during
+// playback.
+//
+// The only other time the card is touched is an explicit mode switch (GPIO1
+// mode button / console `mode=`), which the main sketch only performs while
+// the beam is IDLE: it calls mountSD(), reads the mode's mode.txt with
+// readTextFile(), checks the WAVs exist, then loadSoundSet() frees the three
+// current PSRAM buffers before copying in the new folder's set, and finally
+// unmountSD(). AudioManager owns the SD bus because it already owned it for
+// the boot load - it only hands back file contents, it doesn't interpret
+// mode.txt (that's SettingsController's job, via the main sketch).
 //
 // Three tracks, one at a time:
 //   - IDLE     : loops forever (restarted from PSRAM the instant it hits EOF)
@@ -38,15 +48,30 @@ struct WavAsset {
 
 class AudioManager {
 public:
-    // Optional boot-time load-progress hook, used by the main sketch to drive
-    // the barrel's boot progress bar. phase: 0 = SD card mounted, 1 = idle.wav,
-    // 2 = fire.wav, 3 = cooldown.wav; fraction is 0..1 within that phase
-    // (always 1.0 for phase 0). AudioManager itself knows nothing about the
-    // LEDs - it only emits progress. Set this before begin().
+    // Optional load-progress hook. At boot the main sketch uses it to drive
+    // the barrel's boot progress bar; during a mode switch it swaps in one
+    // that keeps the LEDs (status indicator) animating while the load blocks.
+    // phase: 0 = SD card mounted, 1 = idle.wav, 2 = fire.wav,
+    // 3 = cooldown.wav; fraction is 0..1 within that phase (always 1.0 for
+    // phase 0). AudioManager itself knows nothing about the LEDs - it only
+    // emits progress.
     using BootProgressFn = void (*)(uint8_t phase, float fraction);
     void setBootProgressCallback(BootProgressFn cb) { _bootProgressCb = cb; }
 
-    bool begin(); // load idle/fire/cooldown into PSRAM; false if ANY of them fail
+    bool begin(); // load the stock idle/fire/cooldown into PSRAM; false if ANY of them fail
+
+    // ---- SD access for mode switches (main sketch only calls these while IDLE) ----
+    bool mountSD();
+    void unmountSD();
+    bool fileExists(const String& path);
+    bool readTextFile(const String& path, String& out, size_t maxBytes); // false if missing/too big
+    // Stops playback, frees the current three PSRAM buffers, then loads
+    // <dir>/idle.wav, fire.wav, cooldown.wav (dir "" = card root). SD must be
+    // mounted. False if ANY failed (those tracks are left unloaded/silent).
+    bool loadSoundSet(const String& dir);
+    // Same, but each track from its own folder - used when an alt mode is
+    // missing some WAVs and borrows the stock ones from the root ("").
+    bool loadSoundSet(const String& idleDir, const String& fireDir, const String& cooldownDir);
 
     void playIdleLoop();
     void playFire();
@@ -68,7 +93,8 @@ public:
     float getGain() const { return _gain; }
 
 private:
-    bool loadAssetToPSRAM(const char* path, WavAsset& asset, uint8_t progressPhase);
+    bool loadAssetToPSRAM(const String& path, WavAsset& asset, uint8_t progressPhase);
+    static void freeAsset(WavAsset& asset);
     void startTrack(WavAsset& asset, AudioTrack track);
     void teardownPlayback();
 
@@ -85,4 +111,6 @@ private:
     bool _cooldownEOF = false;
     float _gain = AUDIO_GAIN;
     BootProgressFn _bootProgressCb = nullptr;
+    SPIClass _sdSPI{HSPI};
+    bool _sdMounted = false;
 };

@@ -14,12 +14,11 @@
 //
 // All the actual key/value validation and applying lives in
 // SettingsController - this class only handles reading Serial lines and
-// formatting the response, plus the `help` listing (Serial-only, since the
-// web page's own layout serves as its "help").
+// formatting the response, plus the `help` listing.
 //
 // All changes here are RUNTIME ONLY - nothing is written back to the SD
-// card. They're gone on the next power cycle / reset, exactly like any
-// other in-memory variable.
+// card. They're gone on the next power cycle / reset or the next mode switch
+// (which always starts from stock), exactly like any other in-memory variable.
 // =============================================================================
 class DebugConsole {
 public:
@@ -30,6 +29,7 @@ private:
     void processLine(String line);
     void printHelp();
     static String colorToHex(uint8_t r, uint8_t g, uint8_t b);
+    static String colorToString(const SlotColor& c); // hex, or "rainbow"
 
     LEDManager*         _led      = nullptr;
     AudioManager*       _audio    = nullptr;

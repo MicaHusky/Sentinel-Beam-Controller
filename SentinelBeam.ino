@@ -1,4 +1,4 @@
-// Sentinel Beam firmware  v1.3.3  -  troubleshooting note: check the 12V trigger board DIP switch
+// Sentinel Beam firmware  v1.4.0  -  mode button loads /AltMode1-3 sound+lighting profiles from SD (long press = stock)
 // =============================================================================
 // Sentinel Beam - main sketch
 //
@@ -17,6 +17,10 @@
 //          tail time has elapsed, idle.wav resumes looping. A new trigger
 //          press at any point (including mid-cooldown) immediately cuts back
 //          into a fresh firing cycle.
+// Modes:   GPIO1 single/double/triple press -> /AltMode1/2/3 on the SD card
+//          (its own idle/fire/cooldown.wav + mode.txt settings); long press
+//          -> stock. Requests made while firing/cooling down are queued and
+//          applied once IDLE. See loadProfile().
 // =============================================================================
 
 #include "Config.h"
@@ -53,22 +57,177 @@ DebugConsole   debugConsole;
 SystemState currentState = STATE_INIT;
 bool systemReady = false;
 bool motorInitOk = false; // latched from motorManager.begin(); gates boot ring 0's SD-mount step
-LEDMode appliedMode = MODE_NORMAL; // last mode actually pushed to the subsystems
 
-// Translate the current mode into subsystem calls. The single place modes are
-// acted on - add new modes here (and in LEDMode / modeName() in ModeManager.h).
-// Managers still never call each other; this runs from the main loop.
-void applyMode(LEDMode m) {
-    switch (m) {
-        case MODE_RAINBOW:
-            ledManager.setRainbowMode(true);
-            break;
-        case MODE_NORMAL:
-        default:
-            ledManager.setRainbowMode(false);
-            break;
+// Every runtime-tunable setting back to its Config.h stock value - what a
+// long press means by "as if the Sentinel Beam has just booted". Each alt
+// mode also starts from here before applying its mode.txt on top.
+void resetAllSettingsToStock() {
+    ledManager.resetToDefaults();
+    audioManager.setGain(AUDIO_GAIN);
+    modeManager.resetToDefaults();
+}
+
+// Parse an alt mode's mode.txt and push each key=value line through
+// SettingsController - the same validation the debug console uses. Blank
+// lines and lines starting with '#' or '//' are ignored. Returns false (with
+// a reason) on the first bad line; the caller then rejects the whole mode.
+bool applyModeFile(const String& text, const String& path, String& reason) {
+    int lineNo = 0;
+    int start = 0;
+    // Skip a UTF-8 byte-order mark (some Windows editors add one), or the
+    // first line would read as garbage and reject the whole mode.
+    if (text.length() >= 3 && (uint8_t)text[0] == 0xEF && (uint8_t)text[1] == 0xBB && (uint8_t)text[2] == 0xBF) {
+        start = 3;
     }
-    Serial.printf("[System] LED mode applied: %s\n", modeName(m));
+    const int len = text.length();
+    while (start <= len) {
+        int nl = text.indexOf('\n', start);
+        if (nl < 0) nl = len;
+        String line = text.substring(start, nl);
+        start = nl + 1;
+        lineNo++;
+
+        line.trim(); // also strips a trailing '\r' from Windows line endings
+        if (line.length() == 0 || line.startsWith("#") || line.startsWith("//")) continue;
+
+        int eq = line.indexOf('=');
+        if (eq <= 0) {
+            reason = path + " line " + lineNo + ": expected key=value, got '" + line + "'";
+            return false;
+        }
+        SettingResult r = settingsController.apply(line.substring(0, eq), line.substring(eq + 1), true);
+        if (!r.ok) {
+            reason = path + " line " + lineNo + ": " + r.message;
+            return false;
+        }
+        Serial.printf("[System]   %s line %d: %s\n", path.c_str(), lineNo, r.message.c_str());
+    }
+    return true;
+}
+
+// Keeps the LEDs (in particular the status indicator's blink) animating while
+// a mode switch blocks on the SD card. Throttled - a show() of every strip
+// per 16 KB chunk would slow the load for no visible gain.
+void onModeLoadProgress(uint8_t /*phase*/, float /*fraction*/) {
+    static unsigned long lastMs = 0;
+    if (millis() - lastMs >= 20) {
+        lastMs = millis();
+        ledManager.update();
+    }
+}
+
+// Stock: root WAVs + Config.h defaults. Used by a long press and as the
+// fallback for a rejected alt mode. SD must already be mounted.
+bool loadStockFromMountedSD() {
+    resetAllSettingsToStock();
+    return audioManager.loadSoundSet("");
+}
+
+// Load an alt mode. SD must already be mounted. Any of the folder's four
+// files may be missing:
+//   - a missing WAV is replaced by the stock one from the card root
+//     (usedRootSounds -> the status indicator shows turquoise, not green)
+//   - a missing mode.txt means stock settings
+//   - ALL FOUR missing (empty folder, no folder, or misnamed files) is
+//     treated as a mistake: rejected, red flash, revert to stock.
+// A mode.txt that IS present but has a bad line still rejects the mode.
+// Everything is validated BEFORE the current sounds are freed from PSRAM.
+bool loadAltFromMountedSD(ModeProfile p, String& reason, bool& usedRootSounds) {
+    const String dir = String(ALT_MODE_DIR_PREFIX) + (int)p;
+    const String cfgPath = dir + "/" + MODE_CONFIG_FILENAME;
+    usedRootSounds = false;
+
+    const char* wavs[3] = {IDLE_WAV_PATH, FIRE_WAV_PATH, COOLDOWN_WAV_PATH};
+    String wavDir[3];
+    uint8_t present = 0;
+    for (uint8_t i = 0; i < 3; i++) {
+        if (audioManager.fileExists(dir + wavs[i])) {
+            wavDir[i] = dir;
+            present++;
+        } else {
+            wavDir[i] = ""; // card root
+            usedRootSounds = true;
+            Serial.printf("[System]   %s%s not found - using stock %s from the card root\n",
+                          dir.c_str(), wavs[i], wavs[i]);
+        }
+    }
+    const bool hasCfg = audioManager.fileExists(cfgPath);
+
+    if (present == 0 && !hasCfg) {
+        reason = dir + " is missing, empty, or has no correctly named files";
+        return false;
+    }
+
+    resetAllSettingsToStock(); // alt modes always start from stock, never from the previous mode
+
+    if (hasCfg) {
+        String text;
+        if (!audioManager.readTextFile(cfgPath, text, MODE_CONFIG_MAX_BYTES)) {
+            reason = cfgPath + " unreadable or larger than " + String((unsigned)MODE_CONFIG_MAX_BYTES) + " bytes";
+            return false;
+        }
+        if (!applyModeFile(text, cfgPath, reason)) return false;
+    } else {
+        Serial.printf("[System]   %s not found - using stock settings\n", cfgPath.c_str());
+    }
+
+    if (!audioManager.loadSoundSet(wavDir[0], wavDir[1], wavDir[2])) {
+        reason = "couldn't load " + dir + "'s sound set into PSRAM (see above)";
+        return false;
+    }
+    return true;
+}
+
+// Perform a mode switch. Only called from loop() while STATE_IDLE. Blocks
+// for as long as the SD reads take; the status indicator keeps blinking via
+// onModeLoadProgress(). If an alt mode is rejected (see
+// loadAltFromMountedSD()) the status LEDs flash red and the prop reverts to
+// stock. If it borrowed any root WAVs, the indicator turns turquoise.
+void loadProfile(ModeProfile p) {
+    Serial.printf("[System] mode switch -> %s\n", profileName(p));
+    ledManager.showModeIndicator((uint8_t)p); // already showing if requested via the button; harmless repeat
+    audioManager.stopAll();
+    audioManager.setBootProgressCallback(onModeLoadProgress);
+
+    ModeProfile applied = p;
+    bool ok = false;
+    bool usedRootSounds = false;
+    String reason;
+
+    if (!audioManager.mountSD()) {
+        reason = "SD card could not be mounted";
+    } else if (p == PROFILE_STOCK) {
+        ok = loadStockFromMountedSD();
+        if (!ok) reason = "stock WAVs at the card root failed to load";
+    } else {
+        ok = loadAltFromMountedSD(p, reason, usedRootSounds);
+    }
+
+    if (!ok) {
+        Serial.printf("[System] MODE SWITCH REJECTED (%s): %s - reverting to stock\n",
+                      profileName(p), reason.c_str());
+        ledManager.showFaultIndicator();
+        applied = PROFILE_STOCK;
+        if (p != PROFILE_STOCK && audioManager.mountSD()) {
+            if (!loadStockFromMountedSD()) {
+                Serial.println("[System] ERROR: stock WAVs also failed to load - running without sound");
+            }
+        } else {
+            // SD unavailable (or stock itself failed): settings still go back
+            // to stock; whatever audio is in PSRAM (possibly none) stays.
+            resetAllSettingsToStock();
+            Serial.println("[System] ERROR: could not (re)load stock sounds from SD - audio may be silent");
+        }
+    } else {
+        ledManager.releaseModeIndicator(usedRootSounds);
+        Serial.printf("[System] mode switch complete: %s%s\n", profileName(p),
+                      usedRootSounds ? " (using some stock sounds from the card root)" : "");
+    }
+
+    audioManager.unmountSD();
+    audioManager.setBootProgressCallback(nullptr);
+    modeManager.markApplied(applied);
+    audioManager.playIdleLoop();
 }
 
 // AudioManager's boot-load progress -> barrel boot progress bar.
@@ -108,6 +267,7 @@ void setup() {
 
     audioManager.setBootProgressCallback(onAudioBootProgress);
     bool audioOk = audioManager.begin(); // SD mount + the 3 WAV loads -> rings 0(final)/1/2/3
+    audioManager.setBootProgressCallback(nullptr); // boot bar is done; mode switches install their own
 
     // The debug console must come up even on a failed boot - loop() keeps
     // pumping debugConsole.update() so a dead board can still be inspected.
@@ -156,9 +316,16 @@ void loop() {
     updateTrigger();
 
     updateMode();
-    if (modeManager.mode() != appliedMode) {
-        appliedMode = modeManager.mode();
-        applyMode(appliedMode); // button press or `ledMode=` both land here
+    if (modeManager.takeRequestJustMade()) {
+        // Immediate feedback for a button press / `mode=`, even if the switch
+        // itself has to wait for firing/cooldown to finish.
+        ledManager.showModeIndicator((uint8_t)modeManager.pending());
+        if (currentState != STATE_IDLE) {
+            Serial.printf("[System] %s queued - will load once back at IDLE\n", profileName(modeManager.pending()));
+        }
+    }
+    if (modeManager.hasPending() && currentState == STATE_IDLE) {
+        loadProfile(modeManager.takePending()); // blocking SD load; button press or `mode=` both land here
     }
 
     updateAudio();

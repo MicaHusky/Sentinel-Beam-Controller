@@ -1,0 +1,80 @@
+# =============================================================================
+# Sentinel Beam - alt mode settings (mode.txt)
+#
+# Copy this file into /AltMode1/, /AltMode2/, and/or /AltMode3/ on the SD
+# card, next to that mode's own idle.wav, fire.wav, and cooldown.wav.
+#
+# Every file in an AltMode folder is optional:
+#   - a missing .wav plays the stock one from the root of the card instead
+#     (the status LEDs show the mode in TURQUOISE instead of green so you know)
+#   - a missing mode.txt means stock lighting/volume
+#   So a folder with just a mode.txt = stock sounds with your own look/volume.
+#   An EMPTY folder (or no correctly named files at all) is treated as a
+#   mistake: red flash, back to stock.
+#
+#   single press = AltMode1   double press = AltMode2   triple press = AltMode3
+#   long press   = back to stock (root WAVs + built-in defaults)
+#
+# How it works:
+#   - Every mode starts from the stock settings, then applies the lines below.
+#     Delete (or # out) any line you don't need - it just stays stock.
+#   - One setting per line: key=value. Spaces around '=' are fine.
+#   - Lines starting with # or // are comments. Blank lines are ignored.
+#   - Colors: 6 hex digits (the leading # is optional, e.g. 0055FF or #0055FF)
+#     OR the word rainbow.
+#   - Brightness values are percent, 0-100 (a trailing % is fine).
+#   - These are the same keys the USB debug console accepts (type 'help').
+#
+# If a line in this file is wrong (unknown key, bad value), the whole mode is
+# rejected: the status LEDs flash red and the prop goes back to stock. The
+# exact reason (with line number) is printed on the Serial console.
+#
+# The values below are the stock defaults.
+# =============================================================================
+
+
+# ---- Barrel ----
+# idleColor: barrel color at idle (breathes). rainbow = color chase, no breathing.
+idleColor=DF5709
+# fireColor: barrel color while firing. A hex color wipes in ring by ring;
+# rainbow makes the whole barrel erupt into rainbow the instant you pull the trigger.
+fireColor=6470E2
+# How long the ring-by-ring idle->fire wipe takes, in seconds (ignored for rainbow).
+fireWipeSeconds=6.0
+
+# ---- Vents ----
+# ventColor: vent color at idle (breathes, unless rainbow).
+ventColor=0055FF
+# ventFireColor: vent color while firing and during the cooldown ka-chunks.
+# Set it the same as ventColor to have the vents only get brighter when firing.
+ventFireColor=0055FF
+# Vent peak brightness during the idle breathe (%).
+ventMaxBrightness=25
+
+# ---- Idle breathing (barrel + vents) ----
+# One full breathe cycle, in seconds.
+idleBreatheSeconds=3.0
+# Breathe low point and barrel high point (%). The vents share the low point.
+idleMinBrightness=5
+idleMaxBrightness=25
+
+# ---- Rainbow (applies to any color set to rainbow) ----
+# Chase speed: color-wheel steps per second (higher = faster, max 500).
+rainbowSpeed=40
+# Fixed brightness for anything rainbow (%). Rainbow never breathes.
+rainbowBrightness=100
+
+# ---- Sound ----
+# Playback volume for this mode's WAVs: 0.0-2.0 (1.0 = unity).
+audioGain=0.15
+
+# ---- Cooldown ka-chunks ----
+# Seconds from the start of THIS mode's cooldown.wav where each of the 5
+# ka-chunk hits lands (each hit snaps one barrel ring back to idle).
+# If your cooldown.wav is different, retime these to match it.
+# Use this all-at-once line rather than kachunk1..kachunk5 lines: they're
+# checked one at a time against the stock values and can be rejected as
+# "out of order" partway through.
+kachunkTimestamps=0.260,0.680,1.080,1.490,1.964
+# Extra time held after the last ka-chunk before idle resumes (seconds).
+kachunkTail=0.30
