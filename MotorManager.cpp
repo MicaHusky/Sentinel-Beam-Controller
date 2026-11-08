@@ -44,6 +44,22 @@ void MotorManager::stopFiring() {
     _stepper->stopMove(); // decelerates using the current acceleration, then halts
 }
 
+void MotorManager::startTwitch(bool forward, uint32_t speedHz, uint32_t accelHzPerS2) {
+    if (!_stepper) return;
+    Serial.printf("[MotorManager] twitch %s (%u Hz, accel %u)\n", forward ? "forward" : "reverse",
+                  (unsigned)speedHz, (unsigned)accelHzPerS2);
+    _stepper->setSpeedInHz(speedHz);
+    _stepper->setAcceleration(accelHzPerS2);
+    if (forward) _stepper->runForward();
+    else         _stepper->runBackward();
+}
+
+void MotorManager::stopTwitch() {
+    if (!_stepper) return;
+    Serial.println("[MotorManager] twitch stop");
+    _stepper->stopMove(); // decelerates at the twitch accel set in startTwitch()
+}
+
 bool MotorManager::isRunning() const {
     if (!_stepper) return false;
     return _stepper->isRunning();

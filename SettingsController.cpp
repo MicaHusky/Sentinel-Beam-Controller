@@ -1,9 +1,10 @@
 #include "SettingsController.h"
 
-void SettingsController::begin(LEDManager* led, AudioManager* audio, ModeManager* mode) {
+void SettingsController::begin(LEDManager* led, AudioManager* audio, ModeManager* mode, DisplayModeManager* display) {
     _led = led;
     _audio = audio;
     _mode = mode;
+    _display = display;
 }
 
 bool SettingsController::parseHexColor(const String& hexIn, uint8_t& r, uint8_t& g, uint8_t& b) {
@@ -70,11 +71,14 @@ SettingResult SettingsController::apply(const String& keyIn, const String& value
     // Numeric keys: reject non-numbers up front, so a typo is reported rather
     // than silently becoming 0 via toFloat(). (Colors, kachunkTimestamps, and
     // mode have their own parsing below; percent keys go through parsePercent.)
+    String lowerKey = key;
+    lowerKey.toLowerCase();
     const bool numericKey =
         key.equalsIgnoreCase("fireWipeSeconds") || key.equalsIgnoreCase("kachunkTail") ||
         key.equalsIgnoreCase("idleBreatheSeconds") || key.equalsIgnoreCase("audioGain") ||
         key.equalsIgnoreCase("rainbowSpeed") || key.equalsIgnoreCase("longPressMs") ||
-        key.equalsIgnoreCase("multiPressGapMs") ||
+        key.equalsIgnoreCase("multiPressGapMs") || key.equalsIgnoreCase("displayExitHoldMs") ||
+        lowerKey.startsWith("activity") || lowerKey.startsWith("twitch") ||
         (key.length() == 8 && key.substring(0, 7).equalsIgnoreCase("kachunk"));
     if (numericKey && !isNumber(value)) {
         return {false, "ERROR: " + key + " expects a number, got '" + value + "'."};
@@ -210,9 +214,21 @@ SettingResult SettingsController::apply(const String& keyIn, const String& value
         else if (value == "1" || value.equalsIgnoreCase("alt1") || value.equalsIgnoreCase("AltMode1")) p = PROFILE_ALT1;
         else if (value == "2" || value.equalsIgnoreCase("alt2") || value.equalsIgnoreCase("AltMode2")) p = PROFILE_ALT2;
         else if (value == "3" || value.equalsIgnoreCase("alt3") || value.equalsIgnoreCase("AltMode3")) p = PROFILE_ALT3;
-        else return {false, "ERROR: mode expects stock, 1, 2, or 3."};
+        else if (value.equalsIgnoreCase("display") || value.equalsIgnoreCase("DisplayMode")) p = PROFILE_DISPLAY;
+        else return {false, "ERROR: mode expects stock, 1, 2, 3, or display."};
         if (_mode) _mode->requestProfile(p, "console");
         return {true, String("Mode switch to ") + profileName(p) + " requested"};
+
+    } else if (key.equalsIgnoreCase("fireBrightness") || key.equalsIgnoreCase("ventFireBrightness")) {
+        float percent = parsePercent(value);
+        if (percent < 0.0f || percent > 100.0f) {
+            return {false, "ERROR: " + key + " must be 0-100 (percent)."};
+        }
+        if (_led) {
+            if (key.equalsIgnoreCase("fireBrightness")) _led->setFireBrightness(percent / 100.0f);
+            else                                        _led->setVentFireBrightness(percent / 100.0f);
+        }
+        return {true, key + " has been changed to " + String(percent, 0) + "%"};
 
     } else if (key.equalsIgnoreCase("rainbowBrightness")) {
         float percent = parsePercent(value);
@@ -229,6 +245,57 @@ SettingResult SettingsController::apply(const String& keyIn, const String& value
         }
         if (_mode) _mode->setLongPressMs((uint16_t)ms);
         return {true, "Mode button long-press time has been changed to " + String(ms) + " ms"};
+
+    } else if (key.equalsIgnoreCase("displayExitHoldMs")) {
+        long ms = value.toInt();
+        if (ms < 2000 || ms > 15000) {
+            return {false, "ERROR: displayExitHoldMs must be 2000-15000."};
+        }
+        if (_mode) _mode->setDisplayExitHoldMs((uint16_t)ms);
+        return {true, "Display-mode exit hold has been changed to " + String(ms) + " ms"};
+
+    } else if (key.equalsIgnoreCase("twitchCountMin") || key.equalsIgnoreCase("twitchCountMax")) {
+        long n = value.toInt();
+        if (n < 1 || n > 10 || value.indexOf('.') >= 0) {
+            return {false, "ERROR: " + key + " must be a whole number 1-10."};
+        }
+        if (_display) {
+            if (key.equalsIgnoreCase("twitchCountMin")) _display->twitchCountMin = (uint8_t)n;
+            else                                         _display->twitchCountMax = (uint8_t)n;
+        }
+        return {true, key + " has been changed to " + String(n)};
+
+    } else if (key.equalsIgnoreCase("activityMinSeconds") || key.equalsIgnoreCase("activityMaxSeconds") ||
+               key.equalsIgnoreCase("twitchMinSeconds") || key.equalsIgnoreCase("twitchMaxSeconds") ||
+               key.equalsIgnoreCase("twitchPauseMinSeconds") || key.equalsIgnoreCase("twitchPauseMaxSeconds") ||
+               key.equalsIgnoreCase("twitchRPM") || key.equalsIgnoreCase("twitchAccelPercent")) {
+        // Display-mode float settings: {name, min, max, target}. Each min/max
+        // pair is used as min(a,b)..max(a,b), so no ordering rules here.
+        struct Spec { const char* name; float lo, hi; float* target; };
+        DisplayModeManager* d = _display;
+        static DisplayModeManager dummy; // validation still runs if no display manager is wired
+        if (!d) d = &dummy;
+        const Spec specs[] = {
+            {"activityMinSeconds",    1.0f,  3600.0f, &d->activityMinSeconds},
+            {"activityMaxSeconds",    1.0f,  3600.0f, &d->activityMaxSeconds},
+            {"twitchMinSeconds",      0.05f, 10.0f,   &d->twitchMinSeconds},
+            {"twitchMaxSeconds",      0.05f, 10.0f,   &d->twitchMaxSeconds},
+            {"twitchPauseMinSeconds", 0.0f,  10.0f,   &d->twitchPauseMinSeconds},
+            {"twitchPauseMaxSeconds", 0.0f,  10.0f,   &d->twitchPauseMaxSeconds},
+            {"twitchRPM",             0.5f,  DISPLAY_TWITCH_RPM_MAX, &d->twitchRPM},
+            {"twitchAccelPercent",    5.0f,  200.0f,  &d->twitchAccelPercent},
+        };
+        float v = value.toFloat();
+        for (const Spec& sp : specs) {
+            if (!key.equalsIgnoreCase(sp.name)) continue;
+            if (v < sp.lo || v > sp.hi) {
+                return {false, String("ERROR: ") + sp.name + " must be " + String(sp.lo, 2) + "-" + String(sp.hi, 2) + "."};
+            }
+            *sp.target = v;
+            return {true, String(sp.name) + " has been changed to " + String(v, 2) +
+                          " (applies from the next display-mode activity)"};
+        }
+        return {false, "ERROR: unknown setting '" + key + "'."}; // unreachable
 
     } else if (key.equalsIgnoreCase("multiPressGapMs")) {
         long ms = value.toInt();

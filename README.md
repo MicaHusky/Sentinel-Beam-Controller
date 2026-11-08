@@ -70,6 +70,10 @@ GPIO0/3/45/46 (strapping pins).
     mode.txt         this mode's colors / brightness / timing / volume
 /AltMode2/           optional - double press (same four files)
 /AltMode3/           optional - triple press (same four files)
+/DisplayMode/        optional - 5 presses (all three files REQUIRED)
+    idle.wav         loops while on display
+    activity.wav     plays at random intervals, with barrel twitches
+    DisplayMode.txt  display timing/twitch settings + the usual lighting keys
 ```
 
 Inside an AltMode folder, any missing WAV plays the stock one from the card
@@ -77,8 +81,9 @@ root instead, and a missing `mode.txt` means stock settings - so a folder
 holding only a `mode.txt` is "stock sounds, different look/volume". A folder
 with none of the four files (empty, or misnamed files) is rejected.
 
-A commented template for `mode.txt` (listing every setting at its stock value)
-is in `sd-card-template/mode.txt`. Copy it into each AltMode folder and edit.
+Commented templates listing every setting at its stock value are in
+`sd-card-template/`: `mode.txt` for the AltMode folders and `DisplayMode.txt`
+for `/DisplayMode/`.
 
 ## Boot indicator
 
@@ -110,6 +115,7 @@ between the stock setup and up to three alt modes stored on the SD card:
 | Single | `/AltMode1/` |
 | Double | `/AltMode2/` |
 | Triple | `/AltMode3/` |
+| 5 presses | Display mode (`/DisplayMode/`) |
 | Long (hold ~1 s) | Stock - root sounds + built-in defaults, as if freshly booted |
 
 Each alt mode has its own `idle.wav` / `fire.wav` / `cooldown.wav` and a
@@ -130,11 +136,21 @@ is unusable - folder empty or missing, or a bad line in `mode.txt` - it
 flashes **red**, the switch is rejected, and the prop reverts to stock. The reason is printed on
 the Serial console.
 
+**Display mode** is for leaving the prop on a table. `idle.wav` loops; every
+20-60 s (random, tunable) `activity.wav` plays and the barrel "twitches" 1-5
+times - random direction, random length, slow (10 RPM, half the normal
+acceleration) and limp between twitches. The trigger and fogger are ignored,
+and so are short presses of the mode button: **hold it ~5 s** to get back to
+stock, so bumping it while picking the prop up won't knock it out of display
+mode. The status LEDs double-blink purple on entry. If any of the three
+display-mode files is missing, it flashes red and stays on stock. Note: the
+barrel moves on its own in this mode.
+
 Pressing the button while firing or cooling down is fine: the indicator
 starts blinking right away, and the switch happens as soon as the beam is
 back at idle. Pressing the same mode again reloads it from the card (handy
 after swapping SD cards). The debug console's `mode=stock|1|2|3` does the
-same thing as the button.
+same thing as the button (`mode=display` for display mode).
 
 ## Debug console
 
@@ -155,7 +171,8 @@ it back to **12V** and both problems go away. No firmware change is needed.
 ## Repo layout
 
 - `SentinelBeam.ino` + the various `*Manager` classes - the actual firmware.
-- `sd-card-template/mode.txt` - template settings file for the AltMode folders.
+- `sd-card-template/` - template settings files: `mode.txt` (AltMode folders)
+  and `DisplayMode.txt` (`/DisplayMode/`).
 - `bring-up-tests/` - minimal standalone sketches used to test each subsystem
   on a freshly populated PCB, one at a time, independent of the main firmware.
 

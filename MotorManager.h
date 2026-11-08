@@ -6,7 +6,8 @@
 // MotorManager
 //
 // Owns the barrel stepper. Reacts only to startFiring()/stopFiring() calls
-// from the trigger - it has no idea whether audio is playing.
+// from the trigger, and startTwitch()/stopTwitch() from display mode - it has
+// no idea whether audio is playing.
 //
 // EN handling: FastAccelStepper's auto-enable feature drives the TMC2209
 // EN pin for us - energized while ramping/running, disabled the instant the
@@ -26,6 +27,11 @@ public:
     // Begin a controlled deceleration to zero. EN auto-disables once the
     // motor actually reaches standstill (see begin()).
     void stopFiring();
+
+    // Display mode: slow move in either direction with its own speed/accel.
+    // Same auto-enable/disable as firing - limp again once stopped.
+    void startTwitch(bool forward, uint32_t speedHz, uint32_t accelHzPerS2);
+    void stopTwitch(); // controlled decel at the twitch accel
 
     bool isRunning() const;
 

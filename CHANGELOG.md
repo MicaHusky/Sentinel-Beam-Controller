@@ -3,7 +3,53 @@
 ## [Unreleased]
 Nothing yet.
 
-## [1.4.0] - current
+## [1.5.0] - current
+Display mode: 5 clicks turns the prop into a tabletop display piece that
+occasionally "comes alive" on its own.
+
+### Added
+- **Display mode** (`/DisplayMode/` on the SD card; 5 presses of the mode
+  button, or console `mode=display`). `idle.wav` loops; at a random interval
+  (`activityMinSeconds`..`activityMaxSeconds`, default 20-60 s, counted from
+  the end of the previous activity) `activity.wav` interrupts it and the
+  barrel twitches `twitchCountMin`..`twitchCountMax` times (default 1-5):
+  random direction, random run time, random rests, at `twitchRPM` (default
+  10, capped at 30) with `twitchAccelPercent` (default 50%) of the firing
+  ramp. The burst is clipped to `activity.wav`; `idle.wav` then restarts from
+  the top. Between twitches the stepper EN auto-disables as always - limp at
+  rest.
+- **`DisplayModeManager`** - the scheduler. Follows the independent-manager
+  rule: `update()` returns a `DisplayEvent` and the main sketch's
+  `updateDisplayMode()` turns it into `AudioManager`/`MotorManager` calls.
+- `MotorManager::startTwitch()` / `stopTwitch()`;
+  `AudioManager::loadDisplaySet()` / `playActivity()` / `activityReachedEOF()`.
+- `DisplayMode.txt` takes every `mode.txt` key plus the display keys; all of
+  them are console-tunable too. Template: `sd-card-template/DisplayMode.txt`.
+- Status indicator: both LEDs double-blink **purple** when entering display
+  mode.
+- **`fireBrightness` / `ventFireBrightness`** (0-100%, console + `mode.txt` /
+  `DisplayMode.txt`): barrel and vent brightness while firing and through
+  the ka-chunk wipe, and the starting point of the cooldown fade. Both were
+  hard-coded at 100%. Lowering them cuts peak current draw (added while
+  chasing a power bank "ICP" over-current shutoff mid-shot - the vents alone
+  are ~4 A at 5 V at full brightness).
+- `MOTOR_STEPS_PER_BARREL_REV` (6400, implied by 7467 Hz ~= 70 RPM) to turn
+  RPM into step rate.
+
+### Changed
+- **Stock vent firing brightness is now 30%** (`LED_VENT_FIRE_BRIGHTNESS`,
+  was effectively 100%) and **stock idle max brightness is 15%**
+  (`LED_IDLE_MAX_BRIGHTNESS`, was 25%). Barrel firing brightness stays 100%.
+- In display mode the **trigger and fogger are ignored entirely**, and every
+  mode-button gesture is ignored **except a ~5 s hold back to stock**
+  (`displayExitHoldMs`), so a bump while handling the prop can't knock it out.
+- **Unlike the AltModes, display mode has no per-file fallback**: if
+  `DisplayMode.txt`, `idle.wav`, or `activity.wav` is missing, the switch is
+  rejected (red flash) and the prop reverts to stock.
+- **The barrel can now move without the trigger** (display-mode twitches
+  only). The EN-disables-at-rest safety behavior is unchanged.
+
+## [1.4.0]
 The GPIO1 mode button now switches between stock and up to three SD-card
 "alt modes", each with its own sounds and lighting. Vents default to blue.
 

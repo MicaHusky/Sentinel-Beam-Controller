@@ -1,4 +1,4 @@
-// Sentinel Beam firmware  v1.4.0  -  mode button loads /AltMode1-3 sound+lighting profiles from SD (long press = stock)
+// Sentinel Beam firmware  v1.5.0  -  display mode: 5 clicks, idle loop + random activity.wav with slow barrel twitches
 // =============================================================================
 // Sentinel Beam - main sketch
 //
@@ -21,6 +21,9 @@
 //          (its own idle/fire/cooldown.wav + mode.txt settings); long press
 //          -> stock. Requests made while firing/cooling down are queued and
 //          applied once IDLE. See loadProfile().
+// Display: 5 presses -> /DisplayMode/: idle.wav loops, trigger + fog ignored,
+//          activity.wav plays at random intervals with slow random barrel
+//          twitches (DisplayModeManager). Hold the mode button ~5 s to exit.
 // =============================================================================
 
 #include "Config.h"
@@ -30,6 +33,7 @@
 #include "AudioManager.h"
 #include "LEDManager.h"
 #include "FogManager.h"
+#include "DisplayModeManager.h"
 #include "SettingsController.h"
 #include "DebugConsole.h"
 
@@ -51,6 +55,7 @@ MotorManager   motorManager;
 AudioManager   audioManager;
 LEDManager     ledManager;
 FogManager     fogManager;
+DisplayModeManager displayModeManager;
 SettingsController settingsController;
 DebugConsole   debugConsole;
 
@@ -65,6 +70,7 @@ void resetAllSettingsToStock() {
     ledManager.resetToDefaults();
     audioManager.setGain(AUDIO_GAIN);
     modeManager.resetToDefaults();
+    displayModeManager.resetToDefaults();
 }
 
 // Parse an alt mode's mode.txt and push each key=value line through
@@ -178,6 +184,39 @@ bool loadAltFromMountedSD(ModeProfile p, String& reason, bool& usedRootSounds) {
     return true;
 }
 
+// Load display mode. SD must already be mounted. Unlike the alt modes there's
+// no per-file fallback: ALL of DisplayMode.txt, idle.wav, and activity.wav
+// must be present or the switch is rejected (red flash, revert to stock).
+// DisplayMode.txt takes every mode.txt key plus the display-only ones.
+bool loadDisplayFromMountedSD(String& reason) {
+    const String dir = DISPLAY_MODE_DIR;
+    const String cfgPath = dir + "/" + DISPLAY_MODE_CONFIG_FILE;
+
+    String missing;
+    if (!audioManager.fileExists(cfgPath))                missing += " " + cfgPath;
+    if (!audioManager.fileExists(dir + IDLE_WAV_PATH))     missing += " " + dir + IDLE_WAV_PATH;
+    if (!audioManager.fileExists(dir + ACTIVITY_WAV_PATH)) missing += " " + dir + ACTIVITY_WAV_PATH;
+    if (missing.length()) {
+        reason = "display mode needs all of its files - missing:" + missing;
+        return false;
+    }
+
+    String text;
+    if (!audioManager.readTextFile(cfgPath, text, MODE_CONFIG_MAX_BYTES)) {
+        reason = cfgPath + " unreadable or larger than " + String((unsigned)MODE_CONFIG_MAX_BYTES) + " bytes";
+        return false;
+    }
+
+    resetAllSettingsToStock();
+    if (!applyModeFile(text, cfgPath, reason)) return false;
+
+    if (!audioManager.loadDisplaySet(dir)) {
+        reason = "couldn't load the display-mode WAVs into PSRAM (see above)";
+        return false;
+    }
+    return true;
+}
+
 // Perform a mode switch. Only called from loop() while STATE_IDLE. Blocks
 // for as long as the SD reads take; the status indicator keeps blinking via
 // onModeLoadProgress(). If an alt mode is rejected (see
@@ -186,6 +225,10 @@ bool loadAltFromMountedSD(ModeProfile p, String& reason, bool& usedRootSounds) {
 void loadProfile(ModeProfile p) {
     Serial.printf("[System] mode switch -> %s\n", profileName(p));
     ledManager.showModeIndicator((uint8_t)p); // already showing if requested via the button; harmless repeat
+    if (displayModeManager.isActive()) {
+        displayModeManager.exit();
+        motorManager.stopTwitch(); // controlled decel; limp once stopped (harmless if already still)
+    }
     audioManager.stopAll();
     audioManager.setBootProgressCallback(onModeLoadProgress);
 
@@ -199,6 +242,8 @@ void loadProfile(ModeProfile p) {
     } else if (p == PROFILE_STOCK) {
         ok = loadStockFromMountedSD();
         if (!ok) reason = "stock WAVs at the card root failed to load";
+    } else if (p == PROFILE_DISPLAY) {
+        ok = loadDisplayFromMountedSD(reason);
     } else {
         ok = loadAltFromMountedSD(p, reason, usedRootSounds);
     }
@@ -227,6 +272,7 @@ void loadProfile(ModeProfile p) {
     audioManager.unmountSD();
     audioManager.setBootProgressCallback(nullptr);
     modeManager.markApplied(applied);
+    if (applied == PROFILE_DISPLAY) displayModeManager.enter();
     audioManager.playIdleLoop();
 }
 
@@ -271,8 +317,8 @@ void setup() {
 
     // The debug console must come up even on a failed boot - loop() keeps
     // pumping debugConsole.update() so a dead board can still be inspected.
-    settingsController.begin(&ledManager, &audioManager, &modeManager);
-    debugConsole.begin(&ledManager, &audioManager, &settingsController, &modeManager);
+    settingsController.begin(&ledManager, &audioManager, &modeManager, &displayModeManager);
+    debugConsole.begin(&ledManager, &audioManager, &settingsController, &modeManager, &displayModeManager);
 
     if (motorInitOk && audioOk) {
         ledManager.setBootRingProgress(4, 1.0f); // ring 4: settings + console up (headroom for future subsystems)
@@ -304,6 +350,41 @@ void updateMotor()   {
 void updateLEDs()    { ledManager.update(); }
 // FogManager is edge-driven only (startFiring()/stopFiring()) - no update() needed.
 
+// Display mode: turn DisplayModeManager's events into audio/motor calls.
+// The fogger is never touched here, and the trigger isn't read at all.
+void updateDisplayMode() {
+    if (audioManager.activityReachedEOF()) {
+        if (displayModeManager.notifyActivityEnded()) motorManager.stopTwitch();
+        audioManager.playIdleLoop(); // restart the idle loop from the top
+    }
+
+    const DisplayEvent ev = displayModeManager.update();
+    switch (ev) {
+        case DisplayEvent::START_ACTIVITY:
+            audioManager.playActivity();
+            if (audioManager.activeTrack() != AudioTrack::ACTIVITY) {
+                // Shouldn't happen (activity.wav is required to enter display
+                // mode), but never leave the scheduler waiting on an EOF that
+                // won't come.
+                displayModeManager.notifyActivityEnded();
+                audioManager.playIdleLoop();
+            }
+            break;
+        case DisplayEvent::TWITCH_FORWARD:
+        case DisplayEvent::TWITCH_REVERSE:
+            motorManager.startTwitch(ev == DisplayEvent::TWITCH_FORWARD,
+                                     displayModeManager.twitchSpeedHz(),
+                                     displayModeManager.twitchAccelHz());
+            break;
+        case DisplayEvent::TWITCH_STOP:
+            motorManager.stopTwitch();
+            break;
+        case DisplayEvent::NONE:
+        default:
+            break;
+    }
+}
+
 // Future: updateRumble()
 
 void loop() {
@@ -331,6 +412,11 @@ void loop() {
     updateAudio();
     updateMotor();
     updateLEDs();
+
+    if (displayModeManager.isActive()) {
+        updateDisplayMode();
+        return; // trigger (and with it the fogger) is ignored in display mode
+    }
 
     if (triggerManager.wasPressed()) {
         Serial.println("[System] IDLE/COOLDOWN -> FIRING");

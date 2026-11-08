@@ -11,12 +11,17 @@
 //   single press -> PROFILE_ALT1    (/AltMode1 on the SD card)
 //   double press -> PROFILE_ALT2    (/AltMode2)
 //   triple press -> PROFILE_ALT3    (/AltMode3)
+//   5 presses    -> PROFILE_DISPLAY (/DisplayMode)
 //   long press   -> PROFILE_STOCK   (root WAVs + Config.h defaults, as if just booted)
 //
 // Taps are counted until the button has been released for multiPressGapMs, so
 // a single press acts that long after release. A long press acts the moment
 // the hold crosses longPressMs (while still held) and discards any taps
-// counted before it. 4+ taps are ignored.
+// counted before it. 4 or 6+ taps are ignored.
+//
+// While display mode is the CURRENT profile, all taps are ignored and the
+// hold needed to get back to stock is displayExitHoldMs (default 5 s) instead
+// of longPressMs - so a bump while handling the prop can't knock it out.
 //
 // The debounce is a deliberate copy of TriggerManager's (keeps the hardware-
 // validated trigger path untouched). Like every other manager it never calls
@@ -33,6 +38,7 @@ enum ModeProfile {
     PROFILE_ALT1  = 1,
     PROFILE_ALT2  = 2,
     PROFILE_ALT3  = 3,
+    PROFILE_DISPLAY = 4,
     PROFILE_COUNT // keep last
 };
 
@@ -42,6 +48,7 @@ inline const char* profileName(ModeProfile p) {
         case PROFILE_ALT1:  return "AltMode1";
         case PROFILE_ALT2:  return "AltMode2";
         case PROFILE_ALT3:  return "AltMode3";
+        case PROFILE_DISPLAY: return "DisplayMode";
         default:            return "?";
     }
 }
@@ -64,6 +71,8 @@ public:
     // ---- runtime-tunable gesture timing (Config.h values are the boot defaults) ----
     void setLongPressMs(uint16_t ms)     { _longPressMs = ms; }
     void setMultiPressGapMs(uint16_t ms) { _multiPressGapMs = ms; }
+    void setDisplayExitHoldMs(uint16_t ms) { _displayExitHoldMs = ms; }
+    uint16_t getDisplayExitHoldMs() const { return _displayExitHoldMs; }
     uint16_t getLongPressMs() const      { return _longPressMs; }
     uint16_t getMultiPressGapMs() const  { return _multiPressGapMs; }
     void resetToDefaults();
@@ -83,6 +92,7 @@ private:
 
     uint16_t _longPressMs     = 0;
     uint16_t _multiPressGapMs = 0;
+    uint16_t _displayExitHoldMs = 0;
 
     // ---- profile state ----
     ModeProfile _current = PROFILE_STOCK;

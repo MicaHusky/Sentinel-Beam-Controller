@@ -1,0 +1,109 @@
+# =============================================================================
+# Sentinel Beam - display mode settings (DisplayMode.txt)
+#
+# Goes in /DisplayMode/ on the SD card, together with:
+#   idle.wav      loops while the prop sits on display
+#   activity.wav  plays at random intervals, while the barrel "twitches"
+# ALL THREE files are required. If any is missing, display mode is rejected:
+# the status LEDs flash red and the prop goes back to stock.
+#
+#   5 presses of the mode button        = enter display mode
+#                                         (status LEDs double-blink purple)
+#   hold the mode button ~5 seconds     = leave display mode, back to stock
+#   In display mode the trigger, the fogger, and short presses are ignored.
+#
+# Same format as an AltMode's mode.txt: key=value, one per line; # or //
+# starts a comment line; colors are hex (optional #) or the word rainbow;
+# brightness is percent. Every mode starts from the stock settings - delete
+# any line you don't need. A bad line rejects display mode (red flash, back
+# to stock); the reason and line number are printed on the Serial console.
+#
+# The values below are the stock defaults.
+# =============================================================================
+
+
+# ---- Display-mode behavior ----
+# Random wait between activity.wav plays, in seconds (counted from the end
+# of the previous one). Lower = more frequent. Either order is fine.
+activityMinSeconds=20
+activityMaxSeconds=60
+
+# How many twitches per activity (random, 1-10).
+twitchCountMin=1
+twitchCountMax=5
+
+# How long each twitch drives the barrel, in seconds (random per twitch).
+twitchMinSeconds=0.3
+twitchMaxSeconds=1.5
+
+# Rest between twitches, in seconds (random). The barrel is limp while resting.
+twitchPauseMinSeconds=0.2
+twitchPauseMaxSeconds=1.0
+
+# Twitch speed in barrel RPM (firing is ~70). Capped at 30 for safety -
+# the barrel moves on its own in this mode.
+twitchRPM=10
+# Twitch acceleration/deceleration as a % of the normal firing ramp.
+# 50 = half as fast to get up to (and down from) speed.
+twitchAccelPercent=50
+
+# How long you have to hold the mode button to leave display mode (ms).
+displayExitHoldMs=5000
+
+# Each direction is random. Twitches stop when activity.wav ends, even if
+# some were still left to do.
+
+
+# ---- Lighting & sound: same keys as an AltMode's mode.txt ----
+# (Barrel fire color / wipe / ka-chunk settings are accepted but unused here,
+# since the trigger is ignored in display mode.)
+
+# ---- Barrel ----
+# idleColor: barrel color at idle (breathes). rainbow = color chase, no breathing.
+idleColor=DF5709
+# fireColor: barrel color while firing. A hex color wipes in ring by ring;
+# rainbow makes the whole barrel erupt into rainbow the instant you pull the trigger.
+fireColor=6470E2
+# How long the ring-by-ring idle->fire wipe takes, in seconds (ignored for rainbow).
+fireWipeSeconds=6.0
+# Barrel brightness while firing (%).
+fireBrightness=100
+
+# ---- Vents ----
+# ventColor: vent color at idle (breathes, unless rainbow).
+ventColor=0055FF
+# ventFireColor: vent color while firing and during the cooldown ka-chunks.
+# Set it the same as ventColor to have the vents only get brighter when firing.
+ventFireColor=0055FF
+# Vent peak brightness during the idle breathe (%).
+ventMaxBrightness=25
+# Vent brightness while firing (%).
+ventFireBrightness=30
+
+# ---- Idle breathing (barrel + vents) ----
+# One full breathe cycle, in seconds.
+idleBreatheSeconds=3.0
+# Breathe low point and barrel high point (%). The vents share the low point.
+idleMinBrightness=5
+idleMaxBrightness=15
+
+# ---- Rainbow (applies to any color set to rainbow) ----
+# Chase speed: color-wheel steps per second (higher = faster, max 500).
+rainbowSpeed=40
+# Fixed brightness for anything rainbow (%). Rainbow never breathes.
+rainbowBrightness=100
+
+# ---- Sound ----
+# Playback volume for this mode's WAVs: 0.0-2.0 (1.0 = unity).
+audioGain=0.15
+
+# ---- Cooldown ka-chunks ----
+# Seconds from the start of THIS mode's cooldown.wav where each of the 5
+# ka-chunk hits lands (each hit snaps one barrel ring back to idle).
+# If your cooldown.wav is different, retime these to match it.
+# Use this all-at-once line rather than kachunk1..kachunk5 lines: they're
+# checked one at a time against the stock values and can be rejected as
+# "out of order" partway through.
+kachunkTimestamps=0.260,0.680,1.080,1.490,1.964
+# Extra time held after the last ka-chunk before idle resumes (seconds).
+kachunkTail=0.30

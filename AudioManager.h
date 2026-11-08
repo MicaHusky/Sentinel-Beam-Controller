@@ -23,7 +23,11 @@
 // the boot load - it only hands back file contents, it doesn't interpret
 // mode.txt (that's SettingsController's job, via the main sketch).
 //
-// Three tracks, one at a time:
+// Display mode swaps in a different pair: /DisplayMode/idle.wav (as IDLE) and
+// activity.wav (ACTIVITY, one-shot) - see loadDisplaySet(). fire/cooldown are
+// left unloaded there, since the trigger is ignored in display mode.
+//
+// Tracks, one at a time:
 //   - IDLE     : loops forever (restarted from PSRAM the instant it hits EOF)
 //   - FIRE     : one-shot, reachedEOF reported via fireReachedEOF()
 //   - COOLDOWN : one-shot, reachedEOF reported via cooldownReachedEOF()
@@ -37,7 +41,8 @@ enum class AudioTrack {
     NONE,
     IDLE,
     FIRE,
-    COOLDOWN
+    COOLDOWN,
+    ACTIVITY
 };
 
 struct WavAsset {
@@ -72,10 +77,13 @@ public:
     // Same, but each track from its own folder - used when an alt mode is
     // missing some WAVs and borrows the stock ones from the root ("").
     bool loadSoundSet(const String& idleDir, const String& fireDir, const String& cooldownDir);
+    // Display mode: frees everything, loads <dir>/idle.wav + <dir>/activity.wav.
+    bool loadDisplaySet(const String& dir);
 
     void playIdleLoop();
     void playFire();
     void playCooldown();
+    void playActivity(); // display mode
     void stopAll();
 
     void update(); // call once per loop() - drives the active decoder
@@ -84,6 +92,7 @@ public:
     // finishes on its own.
     bool fireReachedEOF()     const { return _fireEOF; }
     bool cooldownReachedEOF() const { return _cooldownEOF; }
+    bool activityReachedEOF() const { return _activityEOF; }
 
     AudioTrack activeTrack() const { return _activeTrack; }
 
@@ -101,6 +110,7 @@ private:
     WavAsset _idleAsset;
     WavAsset _fireAsset;
     WavAsset _cooldownAsset;
+    WavAsset _activityAsset; // display mode only
 
     AudioOutputI2S*          _out  = nullptr;
     AudioFileSourcePROGMEM*  _file = nullptr;
@@ -109,6 +119,7 @@ private:
     AudioTrack _activeTrack = AudioTrack::NONE;
     bool _fireEOF     = false;
     bool _cooldownEOF = false;
+    bool _activityEOF = false;
     float _gain = AUDIO_GAIN;
     BootProgressFn _bootProgressCb = nullptr;
     SPIClass _sdSPI{HSPI};

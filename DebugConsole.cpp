@@ -1,6 +1,8 @@
 #include "DebugConsole.h"
 
-void DebugConsole::begin(LEDManager* led, AudioManager* audio, SettingsController* settings, ModeManager* mode) {
+void DebugConsole::begin(LEDManager* led, AudioManager* audio, SettingsController* settings, ModeManager* mode,
+                         DisplayModeManager* display) {
+    _display = display;
     _led = led;
     _audio = audio;
     _settings = settings;
@@ -61,15 +63,17 @@ String DebugConsole::colorToString(const SlotColor& c) {
 void DebugConsole::printHelp() {
     Serial.println(F("[Debug] ---- Sentinel Beam debug console ----"));
     Serial.println(F("[Debug] All changes are temporary - lost on reboot or the next mode switch."));
-    Serial.println(F("[Debug] Every key below (except mode=) can also go in an alt mode's mode.txt."));
+    Serial.println(F("[Debug] Every key below (except mode=) can also go in a mode.txt / DisplayMode.txt."));
     Serial.println(F("[Debug] Colors take 6 hex digits (optional #) or the word rainbow."));
     Serial.println(F("[Debug]"));
-    Serial.println(F("[Debug]   mode=stock|1|2|3          switch mode, same as the GPIO1 button (queued until idle)"));
+    Serial.println(F("[Debug]   mode=stock|1|2|3|display  switch mode, same as the GPIO1 button (queued until idle)"));
     Serial.println(F("[Debug]   idleColor=RRGGBB          barrel color at idle"));
     Serial.println(F("[Debug]   fireColor=RRGGBB          barrel color once fully wiped during firing (rainbow = instant, no wipe)"));
     Serial.println(F("[Debug]   ventColor=RRGGBB          vent color at idle"));
     Serial.println(F("[Debug]   ventFireColor=RRGGBB      vent color while firing + kachunk cooldown"));
     Serial.println(F("[Debug]   ventMaxBrightness=50      vent strip peak brightness during idle breathe, 0-100 (%)"));
+    Serial.println(F("[Debug]   fireBrightness=100        barrel brightness while firing + ka-chunks, 0-100 (%)"));
+    Serial.println(F("[Debug]   ventFireBrightness=100    vent brightness while firing + ka-chunks, 0-100 (%)"));
     Serial.println(F("[Debug]   fireWipeSeconds=6.0       idle-color->fire-color fade duration while firing"));
     Serial.println(F("[Debug]   kachunk1..kachunk5=0.26   individually tune one of the 5 ka-chunk timestamps (sec, must stay ascending)"));
     Serial.println(F("[Debug]   kachunkTimestamps=t1,..,t5  set all 5 ka-chunk timestamps at once (sec, ascending)"));
@@ -82,6 +86,14 @@ void DebugConsole::printHelp() {
     Serial.println(F("[Debug]   audioGain=0.15            playback gain, 0.0-2.0"));
     Serial.println(F("[Debug]   longPressMs=1000          mode button hold time for a long press (-> stock)"));
     Serial.println(F("[Debug]   multiPressGapMs=350       max gap between taps of a double/triple press"));
+    Serial.println(F("[Debug]   displayExitHoldMs=5000    hold time to leave display mode (-> stock)"));
+    Serial.println(F("[Debug]  display mode (ranges: either order is fine):"));
+    Serial.println(F("[Debug]   activityMinSeconds=20 / activityMaxSeconds=60     random gap between activity.wav plays"));
+    Serial.println(F("[Debug]   twitchCountMin=1 / twitchCountMax=5               twitches per activity (1-10)"));
+    Serial.println(F("[Debug]   twitchMinSeconds=0.3 / twitchMaxSeconds=1.5       how long each twitch drives the barrel"));
+    Serial.println(F("[Debug]   twitchPauseMinSeconds=0.2 / twitchPauseMaxSeconds=1.0  rest between twitches"));
+    Serial.println(F("[Debug]   twitchRPM=10              twitch speed (max 30; firing is ~70)"));
+    Serial.println(F("[Debug]   twitchAccelPercent=50     twitch accel/decel as % of the firing accel"));
     Serial.println(F("[Debug]"));
     Serial.println(F("[Debug] Example: idleColor=33B5E5"));
     Serial.println(F("[Debug]"));
@@ -107,10 +119,22 @@ void DebugConsole::printHelp() {
                       _led->getKachunkTimestamp(3), _led->getKachunkTimestamp(4), _led->getKachunkTailSeconds());
         Serial.printf("[Debug]   idleMinBrightness=%.0f  idleMaxBrightness=%.0f\n",
                       _led->getIdleMinBrightness() * 100.0f, _led->getIdleMaxBrightness() * 100.0f);
+        Serial.printf("[Debug]   fireBrightness=%.0f  ventFireBrightness=%.0f\n",
+                      _led->getFireBrightness() * 100.0f, _led->getVentFireBrightness() * 100.0f);
         Serial.printf("[Debug]   rainbowSpeed=%.1f  rainbowBrightness=%.0f\n",
                       _led->getRainbowSpeed(), _led->getRainbowBrightness() * 100.0f);
     }
     if (_audio) {
         Serial.printf("[Debug]   audioGain=%.2f\n", _audio->getGain());
+    }
+    if (_display) {
+        Serial.printf("[Debug]   displayExitHoldMs=%u  activity=%.1f-%.1f s  twitchCount=%u-%u\n",
+                      _mode ? (unsigned)_mode->getDisplayExitHoldMs() : 0u,
+                      _display->activityMinSeconds, _display->activityMaxSeconds,
+                      _display->twitchCountMin, _display->twitchCountMax);
+        Serial.printf("[Debug]   twitch=%.2f-%.2f s  pause=%.2f-%.2f s  twitchRPM=%.1f  twitchAccelPercent=%.0f\n",
+                      _display->twitchMinSeconds, _display->twitchMaxSeconds,
+                      _display->twitchPauseMinSeconds, _display->twitchPauseMaxSeconds,
+                      _display->twitchRPM, _display->twitchAccelPercent);
     }
 }

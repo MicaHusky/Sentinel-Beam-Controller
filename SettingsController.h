@@ -3,6 +3,7 @@
 #include "LEDManager.h"
 #include "AudioManager.h"
 #include "ModeManager.h"
+#include "DisplayModeManager.h"
 
 // =============================================================================
 // SettingsController
@@ -27,7 +28,7 @@ struct SettingResult {
 
 class SettingsController {
 public:
-    void begin(LEDManager* led, AudioManager* audio, ModeManager* mode);
+    void begin(LEDManager* led, AudioManager* audio, ModeManager* mode, DisplayModeManager* display);
     // fromModeFile: the line came from an alt mode's mode.txt (rejects `mode=`).
     SettingResult apply(const String& key, const String& value, bool fromModeFile = false);
 
@@ -40,4 +41,5 @@ private:
     LEDManager*   _led   = nullptr;
     AudioManager* _audio = nullptr;
     ModeManager*  _mode  = nullptr;
+    DisplayModeManager* _display = nullptr;
 };

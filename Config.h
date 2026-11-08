@@ -10,7 +10,7 @@
 // Bump this alongside CHANGELOG.md whenever a build is worth calling a
 // version - printed over Serial at boot so a flashed board always tells you
 // exactly what firmware it's running.
-constexpr const char* FIRMWARE_VERSION = "1.4.0";
+constexpr const char* FIRMWARE_VERSION = "1.5.0";
 
 // ---------- Trigger ----------
 constexpr uint8_t  PIN_TRIGGER          = 4;   // INPUT_PULLUP, switch pulls to GND
@@ -22,7 +22,11 @@ constexpr uint16_t TRIGGER_DEBOUNCE_MS  = 20;
 // strapping pins (0/3/45/46), USB D-/D+ (19/20), and the OPI PSRAM range.
 // Gestures (see ModeManager):
 //   single / double / triple press -> load /AltMode1 / /AltMode2 / /AltMode3
+//   5 presses                      -> display mode (/DisplayMode)
 //   long press (held)              -> revert to stock, as if freshly booted
+// While in display mode every gesture is ignored EXCEPT a very long hold
+// (DISPLAY_EXIT_HOLD_MS) back to stock, so bumping the prop while picking it
+// up doesn't knock it out of display mode.
 // A press made while firing or cooling down is queued and applied the moment
 // the beam is back at IDLE. Both timings below are boot defaults - the debug
 // console's longPressMs= / multiPressGapMs= tune them live.
@@ -30,6 +34,7 @@ constexpr uint8_t  PIN_MODE_BUTTON         = 1;
 constexpr uint16_t MODE_BUTTON_DEBOUNCE_MS = 20;
 constexpr uint16_t MODE_LONG_PRESS_MS      = 1000; // held this long -> stock (fires while still held)
 constexpr uint16_t MODE_MULTI_PRESS_GAP_MS = 350;  // max gap between taps of one double/triple press
+constexpr uint16_t DISPLAY_EXIT_HOLD_MS    = 5000; // hold this long to leave display mode (-> stock)
 
 // ---------- Alt modes (per-mode sound + settings folders on the SD card) ----------
 // Each alt mode is a folder at the card root holding its own idle.wav /
@@ -72,6 +77,9 @@ constexpr uint8_t  PIN_STEPPER_ENABLE = 17;  // active LOW
 
 constexpr uint32_t MOTOR_SPEED_HZ     = 7467;   // ~70 RPM at barrel w/ 4:1 reduction
 constexpr uint32_t MOTOR_ACCEL_HZ_S2  = 14934;  // ~0.5s spin-up / spin-down
+// Steps per barrel revolution, implied by MOTOR_SPEED_HZ ~= 70 RPM
+// (7467 * 60 / 70 = 6400). Used to turn display-mode twitchRPM into Hz.
+constexpr uint32_t MOTOR_STEPS_PER_BARREL_REV = 6400;
 
 // ---------- LEDs (WS2812 addressable strip) ----------
 constexpr uint8_t  PIN_LED_DATA     = 18; // clear of SD/I2S/stepper, USB D-/D+ (19/20), and OPI PSRAM pins (26-32)
@@ -97,8 +105,9 @@ constexpr float LED_KACHUNK_5_SEC    = 1.964f;
 constexpr float LED_KACHUNK_TAIL_SEC = 0.300f;
 
 constexpr float LED_IDLE_MIN_BRIGHTNESS = 0.05f;
-constexpr float LED_IDLE_MAX_BRIGHTNESS = 0.25f;
-constexpr float LED_FIRE_BRIGHTNESS     = 1.0f;
+constexpr float LED_IDLE_MAX_BRIGHTNESS = 0.15f;
+constexpr float LED_FIRE_BRIGHTNESS      = 1.0f; // barrel while firing + kachunk wipe (fireBrightness=)
+constexpr float LED_VENT_FIRE_BRIGHTNESS = 0.30f; // vents while firing + kachunk wipe (ventFireBrightness=)
 
 constexpr uint8_t LED_COLOR_IDLE_DEFAULT_R = 0xDF, LED_COLOR_IDLE_DEFAULT_G = 0x57, LED_COLOR_IDLE_DEFAULT_B = 0x09;
 constexpr uint8_t LED_COLOR_FIRE_DEFAULT_R = 0x64, LED_COLOR_FIRE_DEFAULT_G = 0x70, LED_COLOR_FIRE_DEFAULT_B = 0xE2;
@@ -141,7 +150,8 @@ constexpr uint16_t LED_BOOT_FLASH_OFF_MS = 160;   // gap between flashes / befor
 // Simple accent lighting - no wipe or kachunk animation like the barrel.
 // Idle: ventColor, breathing in sync with the barrel's idle breathing, just
 // capped at its own (lower-key) peak brightness. Firing + kachunk cooldown:
-// ventFireColor at full brightness, then back to ventColor for the fade.
+// ventFireColor at ventFireBrightness (LED_VENT_FIRE_BRIGHTNESS, 30% stock),
+// then back to ventColor for the fade.
 // ventFireColor defaults to the same value as ventColor, so stock vents only
 // ever change intensity, never hue - an alt mode can set it differently.
 constexpr uint8_t  PIN_VENT_LEFT   = 41; // one side of the cooling vents (LED strip #2 on the PCB)
@@ -151,11 +161,36 @@ constexpr uint16_t VENT_LED_COUNT  = 80; // 8 groups of 10 LEDs per side
 constexpr uint8_t LED_COLOR_VENT_DEFAULT_R = 0x00, LED_COLOR_VENT_DEFAULT_G = 0x55, LED_COLOR_VENT_DEFAULT_B = 0xFF; // blue (#0055FF); also the stock ventFireColor
 constexpr float   LED_VENT_MAX_BRIGHTNESS  = 0.25f; // peak of the idle breathe range (shares the barrel's min)
 
+// ---------- Display mode (5 clicks; /DisplayMode/ on the SD card) ----------
+// A tabletop "display" mode: /DisplayMode/idle.wav loops, the trigger and
+// fogger are ignored, and every activityMin..Max seconds (random)
+// /DisplayMode/activity.wav plays while the barrel "twitches" a random
+// twitchCountMin..Max times - random direction, random length, slow speed,
+// limp (EN disabled) between twitches. /DisplayMode/DisplayMode.txt holds the
+// same keys as an alt mode's mode.txt plus the display keys below. ALL THREE
+// files are required - if any is missing, the switch is rejected (red flash)
+// and the prop reverts to stock. These are the stock defaults; the console
+// and DisplayMode.txt override them.
+constexpr const char* DISPLAY_MODE_DIR         = "/DisplayMode";
+constexpr const char* DISPLAY_MODE_CONFIG_FILE = "DisplayMode.txt";
+constexpr const char* ACTIVITY_WAV_PATH        = "/activity.wav";
+constexpr float   DISPLAY_ACTIVITY_MIN_SEC     = 20.0f;
+constexpr float   DISPLAY_ACTIVITY_MAX_SEC     = 60.0f;
+constexpr uint8_t DISPLAY_TWITCH_COUNT_MIN     = 1;
+constexpr uint8_t DISPLAY_TWITCH_COUNT_MAX     = 5;
+constexpr float   DISPLAY_TWITCH_MIN_SEC       = 0.3f;  // how long each twitch drives the barrel
+constexpr float   DISPLAY_TWITCH_MAX_SEC       = 1.5f;
+constexpr float   DISPLAY_TWITCH_PAUSE_MIN_SEC = 0.2f;  // rest between twitches
+constexpr float   DISPLAY_TWITCH_PAUSE_MAX_SEC = 1.0f;
+constexpr float   DISPLAY_TWITCH_RPM           = 10.0f; // vs ~70 RPM when firing
+constexpr float   DISPLAY_TWITCH_ACCEL_PERCENT = 50.0f; // % of MOTOR_ACCEL_HZ_S2 (slower to get up to speed)
+constexpr float   DISPLAY_TWITCH_RPM_MAX       = 30.0f; // safety cap on twitchRPM - it moves unattended
+
 // ---------- Status indicator (2 WS2812s, same type as the vents) ----------
 // Normally just mirrors the vent strips. While a mode switch is pending/
 // loading it blacks out and blinks green in the target mode's pattern:
 //   AltMode1 = left LED, AltMode2 = right LED, AltMode3 = both,
-//   stock    = left/right alternating.
+//   stock    = left/right alternating, display mode = both double-blink purple.
 // If the alt mode had to borrow any stock WAVs from the card root, the same
 // pattern turns turquoise once loaded. It holds the pattern for at least
 // STATUS_MODE_MIN_SHOW_MS (so a fast load is still readable), then returns to
@@ -167,6 +202,10 @@ constexpr uint8_t  PIN_STATUS_LED    = 39;
 constexpr uint16_t STATUS_LED_COUNT  = 2;   // index 0 = left, 1 = right
 constexpr uint8_t  LED_COLOR_STATUS_MODE_R  = 0x00, LED_COLOR_STATUS_MODE_G  = 0xFF, LED_COLOR_STATUS_MODE_B  = 0x00; // green
 constexpr uint8_t  LED_COLOR_STATUS_FALLBACK_R = 0x00, LED_COLOR_STATUS_FALLBACK_G = 0xE0, LED_COLOR_STATUS_FALLBACK_B = 0xC0; // turquoise
+constexpr uint8_t  LED_COLOR_STATUS_DISPLAY_R = 0x90, LED_COLOR_STATUS_DISPLAY_G = 0x00, LED_COLOR_STATUS_DISPLAY_B = 0xFF; // purple
+constexpr uint16_t STATUS_DOUBLE_BLINK_ON_MS  = 120;  // display-mode pattern: on/off/on, then a long off
+constexpr uint16_t STATUS_DOUBLE_BLINK_GAP_MS = 120;
+constexpr uint16_t STATUS_DOUBLE_BLINK_REST_MS = 640;
 constexpr uint8_t  LED_COLOR_STATUS_FAULT_R = 0xFF, LED_COLOR_STATUS_FAULT_G = 0x00, LED_COLOR_STATUS_FAULT_B = 0x00; // red
 constexpr float    STATUS_MODE_BRIGHTNESS   = 0.60f;
 constexpr float    STATUS_FAULT_BRIGHTNESS  = 1.00f; // "bright red"

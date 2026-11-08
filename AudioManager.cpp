@@ -79,11 +79,27 @@ bool AudioManager::loadSoundSet(const String& dir) {
     return loadSoundSet(dir, dir, dir);
 }
 
+bool AudioManager::loadDisplaySet(const String& dir) {
+    stopAll(); // nothing may be reading a buffer we're about to free
+    freeAsset(_idleAsset);
+    freeAsset(_fireAsset);
+    freeAsset(_cooldownAsset);
+    freeAsset(_activityAsset);
+
+    bool idleOk     = loadAssetToPSRAM(dir + IDLE_WAV_PATH,     _idleAsset,     1);
+    bool activityOk = loadAssetToPSRAM(dir + ACTIVITY_WAV_PATH, _activityAsset, 2);
+
+    Serial.printf("[AudioManager] display set: idle.wav: %s | activity.wav: %s\n",
+                  idleOk ? "OK" : "FAILED", activityOk ? "OK" : "FAILED");
+    return idleOk && activityOk;
+}
+
 bool AudioManager::loadSoundSet(const String& idleDir, const String& fireDir, const String& cooldownDir) {
     stopAll(); // nothing may be reading a buffer we're about to free
     freeAsset(_idleAsset);
     freeAsset(_fireAsset);
     freeAsset(_cooldownAsset);
+    freeAsset(_activityAsset); // only ever loaded in display mode
 
     bool idleOk     = loadAssetToPSRAM(idleDir     + IDLE_WAV_PATH,     _idleAsset,     1);
     bool fireOk     = loadAssetToPSRAM(fireDir     + FIRE_WAV_PATH,     _fireAsset,     2);
@@ -185,6 +201,11 @@ void AudioManager::playCooldown() {
     startTrack(_cooldownAsset, AudioTrack::COOLDOWN);
 }
 
+void AudioManager::playActivity() {
+    Serial.println("[AudioManager] -> activity.wav");
+    startTrack(_activityAsset, AudioTrack::ACTIVITY);
+}
+
 void AudioManager::stopAll() {
     teardownPlayback();
     _activeTrack = AudioTrack::NONE;
@@ -200,6 +221,7 @@ void AudioManager::setGain(float gain) {
 void AudioManager::update() {
     _fireEOF = false;
     _cooldownEOF = false;
+    _activityEOF = false;
 
     if (!_wav || !_wav->isRunning()) return;
     if (_wav->loop()) return; // still playing, nothing to do this cycle
@@ -221,6 +243,10 @@ void AudioManager::update() {
         case AudioTrack::COOLDOWN:
             Serial.println("[AudioManager] cooldown.wav finished");
             _cooldownEOF = true;
+            break;
+        case AudioTrack::ACTIVITY:
+            Serial.println("[AudioManager] activity.wav finished");
+            _activityEOF = true;
             break;
         default:
             break;

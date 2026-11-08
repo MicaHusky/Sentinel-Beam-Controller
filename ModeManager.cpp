@@ -27,6 +27,7 @@ void ModeManager::begin() {
 void ModeManager::resetToDefaults() {
     _longPressMs     = MODE_LONG_PRESS_MS;
     _multiPressGapMs = MODE_MULTI_PRESS_GAP_MS;
+    _displayExitHoldMs = DISPLAY_EXIT_HOLD_MS;
 }
 
 void ModeManager::update() {
@@ -58,21 +59,30 @@ void ModeManager::update() {
         }
     }
 
+    const bool inDisplay = (_current == PROFILE_DISPLAY);
+    const uint16_t holdMs = inDisplay ? _displayExitHoldMs : _longPressMs;
+
     // Long press: fires while still held, discarding any taps counted before it.
-    if (_stableState && !_longFired && (now - _pressStartMs) >= _longPressMs) {
+    if (_stableState && !_longFired && (now - _pressStartMs) >= holdMs) {
         _longFired = true;
         _tapCount = 0;
-        Serial.println("[ModeManager] long press");
-        requestProfile(PROFILE_STOCK, "long press");
+        Serial.println(inDisplay ? "[ModeManager] very long press (display mode exit)" : "[ModeManager] long press");
+        requestProfile(PROFILE_STOCK, inDisplay ? "display-mode exit hold" : "long press");
     }
 
     // Taps: resolve once the button has stayed released for the multi-press gap.
     if (_tapCount > 0 && !_stableState && (now - _lastReleaseMs) >= _multiPressGapMs) {
         uint8_t taps = _tapCount;
         _tapCount = 0;
-        if (taps <= 3) {
+        if (inDisplay) {
+            Serial.printf("[ModeManager] %u press(es) ignored in display mode - hold %u ms to exit\n",
+                          taps, (unsigned)_displayExitHoldMs);
+        } else if (taps <= 3) {
             Serial.printf("[ModeManager] %u-press\n", taps);
             requestProfile((ModeProfile)taps, taps == 1 ? "single press" : (taps == 2 ? "double press" : "triple press"));
+        } else if (taps == 5) {
+            Serial.println("[ModeManager] 5-press");
+            requestProfile(PROFILE_DISPLAY, "5 presses");
         } else {
             Serial.printf("[ModeManager] %u presses - no gesture mapped, ignored\n", taps);
         }

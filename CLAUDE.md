@@ -38,6 +38,10 @@ frequently didn't work as given.
   If a finger gets caught, the coils must not be energized holding the
   barrel in motion - it needs to be freely stoppable by hand. Don't change
   this to "always-enabled" for smoothness without discussing the tradeoff.
+- **Display mode (v1.5.0) is the ONLY time the barrel moves without the
+  trigger** - slow random twitches, capped at `DISPLAY_TWITCH_RPM_MAX` (30
+  RPM), EN auto-disabling between twitches like everywhere else. Don't add
+  other unattended motion, or raise that cap, without discussion.
 - **Trigger release currently does a full controlled deceleration** (~0.5s
   driven ramp-down, EN disables only once fully stopped) rather than an
   instant free-coast. This was a deliberate choice over the more
@@ -111,9 +115,18 @@ frequently didn't work as given.
   with none of the four, or a `mode.txt` with a bad line, is rejected as a
   whole (red flash, revert to stock). The button debounce is a deliberate
   copy of `TriggerManager`'s.
+- **Display mode (v1.5.0)**: 5 presses -> `/DisplayMode/` (`idle.wav`,
+  `activity.wav`, `DisplayMode.txt` - all three required, no fallback; user's
+  call). `DisplayModeManager` schedules random activity + twitch bursts and
+  returns events; the main sketch's `updateDisplayMode()` acts on them.
+  Trigger and fog are ignored; all button gestures are ignored except a ~5 s
+  hold back to stock (user wanted bump-proofing). Twitch accel is 50% of the
+  firing ramp ("slower to get up to speed"), 10 RPM. The twitch burst is
+  clipped to `activity.wav`'s length; idle.wav restarts from the top after.
 - **Status indicator (GPIO39, 2 LEDs)** mirrors the vents except while
   showing a mode-switch pattern (green: L = Alt1, R = Alt2, both = Alt3,
-  alternating = stock; turquoise = same, but borrowing root WAVs) or a fault
+  alternating = stock; turquoise = same, but borrowing root WAVs; purple
+  double-blink = display mode) or a fault
   (red). User-specified; keep it mirroring the vents otherwise.
 - **`rainbow` is a per-color value**, not a global mode. It never breathes
   (fixed `rainbowBrightness`, user's call), and a rainbow `fireColor` erupts
@@ -138,9 +151,11 @@ frequently didn't work as given.
   green x1 / red x2 are live; **yellow x2 = recoverable (fall back to
   lights+motion only) becomes reachable once this config path exists** and
   the firmware has a real degraded-run mode to enter.
-- **Additional LED banks**: a "radiator" bank and body-detail LEDs, plus one
-  spare output for future expansion. Should follow the same state machine
-  as the vent strips/barrel, colors/behavior not yet decided.
+- **Additional LED banks**: body-detail LEDs, plus one spare output for
+  future expansion. Should follow the same state machine as the vent
+  strips/barrel, colors/behavior not yet decided. (The "radiator" bank
+  mentioned in early planning is the two 80-LED vent strips on GPIO40/41 -
+  already built, not a separate bank.)
 - **Alt in-game-accurate cooldown**: barrel rotating ~20-something degrees
   in reverse per kachunk beat (roughly double the normal spin accel),
   synchronized with the audio and LED beats. Scoped as feasible, never

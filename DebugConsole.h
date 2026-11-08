@@ -4,6 +4,7 @@
 #include "AudioManager.h"
 #include "SettingsController.h"
 #include "ModeManager.h"
+#include "DisplayModeManager.h"
 
 // =============================================================================
 // DebugConsole
@@ -22,7 +23,8 @@
 // =============================================================================
 class DebugConsole {
 public:
-    void begin(LEDManager* led, AudioManager* audio, SettingsController* settings, ModeManager* mode);
+    void begin(LEDManager* led, AudioManager* audio, SettingsController* settings, ModeManager* mode,
+               DisplayModeManager* display);
     void update(); // call once per loop() - reads whatever's arrived on Serial, non-blocking
 
 private:
@@ -35,5 +37,6 @@ private:
     AudioManager*       _audio    = nullptr;
     SettingsController* _settings = nullptr;
     ModeManager*        _mode     = nullptr;
+    DisplayModeManager* _display  = nullptr;
     String _lineBuffer;
 };

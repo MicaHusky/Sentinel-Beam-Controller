@@ -41,6 +41,8 @@ idleColor=DF5709
 fireColor=6470E2
 # How long the ring-by-ring idle->fire wipe takes, in seconds (ignored for rainbow).
 fireWipeSeconds=6.0
+# Barrel brightness while firing (%).
+fireBrightness=100
 
 # ---- Vents ----
 # ventColor: vent color at idle (breathes, unless rainbow).
@@ -50,13 +52,15 @@ ventColor=0055FF
 ventFireColor=0055FF
 # Vent peak brightness during the idle breathe (%).
 ventMaxBrightness=25
+# Vent brightness while firing (%).
+ventFireBrightness=30
 
 # ---- Idle breathing (barrel + vents) ----
 # One full breathe cycle, in seconds.
 idleBreatheSeconds=3.0
 # Breathe low point and barrel high point (%). The vents share the low point.
 idleMinBrightness=5
-idleMaxBrightness=25
+idleMaxBrightness=15
 
 # ---- Rainbow (applies to any color set to rainbow) ----
 # Chase speed: color-wheel steps per second (higher = faster, max 500).

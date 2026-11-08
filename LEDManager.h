@@ -11,7 +11,7 @@
 //
 //   IDLE           : all sets pulse the idle color, breathing between
 //                     idleMinBrightness and idleMaxBrightness.
-//   FIRING         : brightness jumps to 100%; sets fade idle-color->fire-color
+//   FIRING         : brightness jumps to fireBrightness (100% stock); sets fade idle-color->fire-color
 //                     one at a time over fireWipeSeconds. If firing runs
 //                     longer than that, everything just stays full fire-color.
 //                     A rainbow fire color skips the wipe: the whole barrel
@@ -26,7 +26,7 @@
 //                     time is held after the last needed kachunk before
 //                     moving on, to let that hit's decay finish naturally.
 //   COOLDOWN_FADE  : once every needed ring has hard-switched back, brightness
-//                     eases from 100% down to the idle level over
+//                     eases from fireBrightness down to the idle level over
 //                     LED_BRIGHTNESS_FADE_MS, then hands off to IDLE breathing.
 //
 // COOLDOWN_WIPE runs on this object's own millis()-based clock (set the
@@ -38,8 +38,8 @@
 //
 // Two vent LED strips (left/right cooling vents) ride along with all four
 // states above, with much simpler behavior: ventColor breathing at idle (same
-// phase as the barrel, capped at its own lower peak), ventFireColor at full
-// brightness while firing and through the kachunk wipe, then ventColor again
+// phase as the barrel, capped at its own lower peak), ventFireColor at
+// ventFireBrightness (30% stock) while firing and through the kachunk wipe, then ventColor again
 // for the fade back to idle. Stock ventFireColor == ventColor, so stock vents
 // only ever change intensity.
 //
@@ -112,7 +112,8 @@ public:
 
     // ---- status indicator (2 LEDs on PIN_STATUS_LED) ----
     // profileIndex: 0 = stock (left/right alternating), 1..3 = AltMode1..3
-    // (left / right / both). Blinks green until releaseModeIndicator().
+    // (left / right / both), all blinking green until releaseModeIndicator();
+    // 4 = display mode (both LEDs double-blink purple).
     void showModeIndicator(uint8_t profileIndex);
     // Back to mirroring the vents - but not before the pattern has been shown
     // for STATUS_MODE_MIN_SHOW_MS, so a fast load is still readable.
@@ -136,6 +137,13 @@ public:
     void setIdleMaxBrightness(float fraction0to1);
     void setVentMaxBrightness(float fraction0to1);
     float getVentMaxBrightness() const { return _ventMaxBrightness; }
+    // Brightness while firing + through the kachunk wipe (hex colors only -
+    // a rainbow slot always uses rainbowBrightness). Also the starting point
+    // of the cooldown fade back to idle.
+    void setFireBrightness(float fraction0to1);
+    float getFireBrightness() const { return _fireBrightness; }
+    void setVentFireBrightness(float fraction0to1);
+    float getVentFireBrightness() const { return _ventFireBrightness; }
 
     // Individual kachunk timestamp (index 0-4 -> kachunk 1-5), seconds from
     // the start of cooldown.wav. Must stay strictly ascending - callers
@@ -227,6 +235,8 @@ private:
     float    _kachunkTimestampSec[5];
     float    _kachunkTailSec;
     float    _ventMaxBrightness;
+    float    _fireBrightness;     // barrel, firing + kachunk wipe
+    float    _ventFireBrightness; // vents, firing + kachunk wipe
     float    _rainbowSpeed;      // wheel positions/sec
     float    _rainbowBrightness; // 0..1, fixed (rainbow never breathes)
 };

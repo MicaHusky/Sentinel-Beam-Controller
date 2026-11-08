@@ -30,6 +30,8 @@ void LEDManager::resetToDefaults() {
     _kachunkTimestampSec[4] = LED_KACHUNK_5_SEC;
     _kachunkTailSec      = LED_KACHUNK_TAIL_SEC;
     _ventMaxBrightness   = LED_VENT_MAX_BRIGHTNESS;
+    _fireBrightness      = LED_FIRE_BRIGHTNESS;
+    _ventFireBrightness  = LED_VENT_FIRE_BRIGHTNESS;
     _rainbowSpeed        = LED_RAINBOW_SPEED_DEFAULT;
     _rainbowBrightness   = LED_RAINBOW_BRIGHTNESS_DEFAULT;
 }
@@ -240,6 +242,20 @@ void LEDManager::renderStatus() {
         }
     }
 
+    if (_statusMode == StatusMode::MODE_PATTERN && _statusProfile == 4) {
+        // Display mode: both LEDs purple, on-off-on then a long rest.
+        const uint32_t on = STATUS_DOUBLE_BLINK_ON_MS, gap = STATUS_DOUBLE_BLINK_GAP_MS;
+        const uint32_t period = on + gap + on + STATUS_DOUBLE_BLINK_REST_MS;
+        uint32_t t = (now - _statusStartMs) % period;
+        bool lit = (t < on) || (t >= on + gap && t < on + gap + on);
+        uint32_t purple = lit ? _status.Color((uint8_t)(LED_COLOR_STATUS_DISPLAY_R * STATUS_MODE_BRIGHTNESS),
+                                              (uint8_t)(LED_COLOR_STATUS_DISPLAY_G * STATUS_MODE_BRIGHTNESS),
+                                              (uint8_t)(LED_COLOR_STATUS_DISPLAY_B * STATUS_MODE_BRIGHTNESS))
+                              : 0;
+        setStatusPixels(purple, purple);
+        return;
+    }
+
     if (_statusMode == StatusMode::MODE_PATTERN) {
         unsigned long elapsed = now - _statusStartMs;
         bool lit = (elapsed % cycleMs) < STATUS_BLINK_ON_MS;
@@ -332,6 +348,14 @@ void LEDManager::setKachunkTailSeconds(float seconds) {
 
 void LEDManager::setRainbowSpeed(float wheelPositionsPerSecond) {
     _rainbowSpeed = wheelPositionsPerSecond;
+}
+
+void LEDManager::setFireBrightness(float fraction0to1) {
+    _fireBrightness = fraction0to1;
+}
+
+void LEDManager::setVentFireBrightness(float fraction0to1) {
+    _ventFireBrightness = fraction0to1;
 }
 
 void LEDManager::setRainbowBrightness(float fraction0to1) {
@@ -456,8 +480,8 @@ void LEDManager::renderFiring() {
     for (uint8_t i = 0; i < LED_NUM_SETS; i++) {
         _setMix[i] = segmentProgress(i, LED_NUM_SETS, overallProgress); // set 0 wipes first
     }
-    renderBarrel(_setMix, LED_FIRE_BRIGHTNESS, LED_FIRE_BRIGHTNESS);
-    renderVents(_colors[(uint8_t)ColorSlot::VENT_FIRE], LED_FIRE_BRIGHTNESS);
+    renderBarrel(_setMix, _fireBrightness, _fireBrightness);
+    renderVents(_colors[(uint8_t)ColorSlot::VENT_FIRE], _ventFireBrightness);
 }
 
 void LEDManager::renderCooldownWipe() {
@@ -485,8 +509,8 @@ void LEDManager::renderCooldownWipe() {
         // else: leave it exactly as frozen at the moment firing ended
     }
 
-    renderBarrel(_setMix, LED_FIRE_BRIGHTNESS, LED_FIRE_BRIGHTNESS);
-    renderVents(_colors[(uint8_t)ColorSlot::VENT_FIRE], LED_FIRE_BRIGHTNESS);
+    renderBarrel(_setMix, _fireBrightness, _fireBrightness);
+    renderVents(_colors[(uint8_t)ColorSlot::VENT_FIRE], _ventFireBrightness);
 
     uint32_t lastBeatMs = (uint32_t)(_kachunkTimestampSec[_neededBeats - 1] * 1000.0f);
     uint32_t cutoffMs = lastBeatMs + (uint32_t)(_kachunkTailSec * 1000.0f);
@@ -505,8 +529,8 @@ void LEDManager::renderCooldownFade() {
     float t = (float)elapsed / (float)LED_BRIGHTNESS_FADE_MS;
     if (t > 1.0f) t = 1.0f;
 
-    float brightness = LED_FIRE_BRIGHTNESS + (_idleMaxBrightness - LED_FIRE_BRIGHTNESS) * t;
-    float ventBrightness = LED_FIRE_BRIGHTNESS + (_ventMaxBrightness - LED_FIRE_BRIGHTNESS) * t;
+    float brightness = _fireBrightness + (_idleMaxBrightness - _fireBrightness) * t;
+    float ventBrightness = _ventFireBrightness + (_ventMaxBrightness - _ventFireBrightness) * t;
 
     renderBarrel(nullptr, brightness, brightness);
     renderVents(_colors[(uint8_t)ColorSlot::VENT], ventBrightness);
